@@ -1,0 +1,16 @@
+__pycache__/
+.DS_Store
+
+
+# LaTeX intermediate files
+*.log
+*.aux
+*.out
+*.toc
+*.lof
+*.aux
+*.synctex.gz
+*.fdb_latexmk
+*.blg
+*.fls
+*.bbl
