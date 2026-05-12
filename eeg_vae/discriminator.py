@@ -1,22 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-
-def hinge_d_loss(logits_real, logits_fake):
-    loss_real = torch.mean(F.relu(1.0 - logits_real))
-    loss_fake = torch.mean(F.relu(1.0 + logits_fake))
-    return 0.5 * (loss_real + loss_fake)
-
-
-def vanilla_d_loss(logits_real, logits_fake):
-    loss_real = torch.mean(F.softplus(-logits_real))
-    loss_fake = torch.mean(F.softplus(logits_fake))
-    return 0.5 * (loss_real + loss_fake)
-
-
-def hinge_g_loss(logits_fake):
-    return -torch.mean(logits_fake)
 
 
 def weights_init(m):
@@ -122,3 +105,26 @@ class NLayerDiscriminator1D(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
+
+class Discriminator(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        ndf=64,
+        n_layers=3,
+        use_actnorm=False,
+    ):
+        super().__init__()
+
+        self.model = NLayerDiscriminator1D(
+            input_nc=in_channels,
+            ndf=ndf,
+            n_layers=n_layers,
+            use_actnorm=use_actnorm,
+        )
+
+        self.apply(weights_init)
+
+    def forward(self, x):
+        return self.model(x)
