@@ -77,29 +77,3 @@ class EEGVAE(nn.Module):
     def get_last_layer(self):
         return self.autoencoder.get_last_layer()
 
-
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    model = EEGVAE(
-        in_channels=16,
-        adapted_channels=32,
-        adaptor_layers=2,
-        z_channels=4,
-        ch=32,
-        ch_mult=(1, 2),
-        num_res_blocks=1,
-        attn_resolutions=(16,),
-        resolution=64,
-        dropout=0.0,
-        resamp_with_conv=True,
-        tanh_out=False,
-        use_checkpoint=False,
-    ).to(device)
-
-    x = torch.randn(8, 16, 64).to(device)
-
-    recon, posterior = model(x)
-
-    print("Input shape :", x.shape)
-    print("Recon shape :", recon.shape)
