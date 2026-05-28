@@ -1,0 +1,199 @@
+dataset_name: BCI2A  # PHYSIONETMI, SLEEPEDFX, SEEDV, BCI2A, TUAB, FACED, SIENA, SHUMI, KARAONE, BCI2020, CHISCO
+
+
+data:
+  batch_size: 64
+  split_ratio: [0.8, 0.1, 0.1]
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: false
+  seed: 100
+  channel_mode: "raw"
+  return_ch_names: false
+
+
+training:
+  task: classification
+  seed: 8
+  model_name: EEGPT # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
+  model_config_path: /home/infres/yrothlin-24/EEG-VAE/configs/model_configs.yaml
+  mode: linear_probing # linear_probing, channel_training, finetuning, full_training
+  model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/pretraining_final.pt
+  strict_checkpoint_loading: false
+
+  loss_dir: /home/infres/yrothlin-24/EEG-VAE/logs/downstream/losses
+  model_checkpoint_dir: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/downstream
+
+  tsne_enabled: false
+  tsne_dir: /home/infres/yrothlin-24/EEG-VAE/logs/downstream/tsne
+  tsne_splits: [train, val, test]
+  tsne_max_samples: 2000
+  tsne_perplexity: 30.0
+  tsne_pca_enabled: true
+  tsne_pca_components: 50
+  tsne_pca_whiten: false
+  tsne_learning_rate: auto
+  tsne_max_iter: 1000
+  tsne_random_state: 42
+  tsne_dpi: 180
+  tsne_figsize: [8, 6]
+  tsne_feature_source: backbone
+
+  num_epochs: 100
+  device: "cuda"
+  optimizer: "adamw"
+  scheduler: "onecycle"  # cosine, step, plateau, onecycle, none
+  lr: 0.0004
+  max_lr: 0.0004  # used by onecycle; defaults to lr when null
+  onecycle_pct_start: 0.2
+  onecycle_div_factor: 25.0
+  onecycle_final_div_factor: 10000.0
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  grad_clip: 1.0
+  use_amp: false
+  log_step: 50
+  max_step_train: null
+  max_step_val: null
+  max_step_test: null
+
+  loss: cross_entropy  # cross_entropy, label_smoothing, bce, mse, l1, smooth_l1
+  label_smoothing: 0.0
+  early_stopping_patience: 10
+  early_stopping_min_delta: 0.0
+  restore_best_checkpoint: true
+  metric_monitoring: "BACC"  # BACC, ACC, AUROC, F1_macro, F1_weighted, KAPPA, val_loss
+  plateau_factor: 0.5
+  plateau_patience: 2
+
+
+head:
+  type: eegpt_probe # default, eegpt_probe, luna_probe
+  pooling: eegpt_flatten # eegpt_flatten, mean, max, attention
+  n_layer: 2
+  hidden_dim: 16
+  dropout: 0.50
+  norm: none
+  probe_max_norm: 1.0
+  classifier_max_norm: 0.25
+
+
+# head:
+#   type: eegvae_probe
+#   pooling: pyramid
+#   n_layer: 2
+#   hidden_dim: 128
+#   dropout: 0.2
+#   norm: layernorm
+
+
+
+model:
+  in_channels: 19
+  out_channels: 19
+
+  adapted_channels: 64
+  adaptor_layers: 2
+
+  z_channels: 16
+  embed_dim: 16
+
+  ch: 64
+  ch_mult: [1, 2, 4]
+
+  num_res_blocks: 2
+  attn_resolutions: []
+
+  resolution: null
+
+  dropout: 0.0
+  resamp_with_conv: true
+
+  tanh_out: false
+  use_checkpoint: false
+  sequence_block: attention  # attention, mamba
+  criss_cross_patch_size: 200
+
+
+
+PHYSIONETMI:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/PHYSIONETMI/physionetmi.lmdb
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed_cbramod/PHYSIONETMI/physionetmi.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/PHYSIONETMI/physionetmi.lmdb
+  n_classes: 4
+  patch_size: 200
+  # train_ids: ['S001', 'S002', 'S003', 'S004', 'S005', 'S006', 'S007', 'S008', 'S009', 'S010', 'S011', 'S012', 'S013', 'S014', 'S015', 'S016', 'S017', 'S018', 'S019', 'S020', 'S021', 'S022', 'S023', 'S024', 'S025', 'S026', 'S027', 'S028', 'S029', 'S030', 'S031', 'S032', 'S033', 'S034', 'S035', 'S036', 'S037', 'S038', 'S039', 'S040', 'S041', 'S042', 'S043', 'S044', 'S045', 'S046', 'S047', 'S048', 'S049', 'S050', 'S051', 'S052', 'S053', 'S054', 'S055', 'S056', 'S057', 'S058', 'S059', 'S060', 'S061', 'S062', 'S063', 'S064', 'S065', 'S066', 'S067', 'S068', 'S069', 'S070'] # S001 - S070
+  # val_ids: ['S071', 'S072', 'S073', 'S074', 'S075', 'S076', 'S077', 'S078', 'S079', 'S080', 'S081', 'S082', 'S083', 'S084', 'S085', 'S086', 'S087', 'S088', 'S089'] # S071 - S089
+  # test_ids: ['S090', 'S091', 'S092', 'S093', 'S094', 'S095', 'S096', 'S097', 'S098', 'S099', 'S100', 'S101', 'S102', 'S103', 'S104', 'S105', 'S106', 'S107', 'S108', 'S109'] # S090 - S109
+
+SLEEPEDFX:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/SLEEPEDF/sleepedfx.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/SLEEPEDF/sleepedf.lmdb
+  n_classes: 5
+  patch_size: 200
+  class_weights:
+    - 0.54
+    - 1.88
+    - 1.09
+    - 2.86
+    - 1.83
+
+SEEDV:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/SEEDV/seedv.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/SEEDV/seedv.lmdb
+  n_channels: 62
+  n_classes: 5
+  patch_size: 200
+  # train_ids: ['Subj1', 'Subj2', 'Subj3', 'Subj4', 'Subj5', 'Subj6']
+  # val_ids: ['Subj7', 'Subj8', 'Subj9', 'Subj10', 'Subj11']
+  # test_ids: ['Subj12', 'Subj13', 'Subj14', 'Subj15', 'Subj16']
+
+BCI2A:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/BCI2A/bci2a.lmdb
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed_cbramod/BCI2A/bci2a.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/BCI2A/bci2a.lmdb
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed_cbramod/bp_filtered/BCI2A/bci2a.lmdb
+  n_classes: 4
+  patch_size: 200
+  # train_ids: ['A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07','A08']
+  # val_ids: []
+  # test_ids: ['A09']
+
+
+TUAB:
+  dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/TUAB/tuab.lmdb
+  n_classes: 2
+  patch_size: 256
+
+FACED:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/FACED/faced.lmdb
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed_cbramod/FACED/faced.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/FACED/faced.lmdb
+  n_classes: 9
+  patch_size: 200
+
+SIENA:
+  dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/SIENA/siena.lmdb
+  n_classes: 2
+  patch_size: 200
+
+SHUMI:
+  # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/SHUMI/shumi.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/SHUMI/shumi.lmdb
+  n_classes: 2
+  patch_size: 200
+
+KARAONE:
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/KARAONE/karaone.lmdb
+  n_classes: 11
+  patch_size: 200
+
+BCI2020:
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/BCI2020/bci2020.lmdb
+  n_classes: 5
+  patch_size: 200
+
+CHISCO:
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/CHISCO/chisco.lmdb
+  n_classes: 39
+  patch_size: 200

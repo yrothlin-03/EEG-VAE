@@ -25,6 +25,8 @@ class EEGVAE(nn.Module):
         resamp_with_conv=True,
         tanh_out=False,
         use_checkpoint=False,
+        sequence_block="attention",
+        criss_cross_patch_size=200,
     ):
         super().__init__()
 
@@ -42,7 +44,7 @@ class EEGVAE(nn.Module):
 
         self.autoencoder = AutoencoderKL(
             in_channels=adapted_channels,
-            out_channels=adapted_channels,
+            out_channels=out_channels,
             z_channels=z_channels,
             embed_dim=embed_dim,
             ch=ch,
@@ -54,15 +56,19 @@ class EEGVAE(nn.Module):
             resamp_with_conv=resamp_with_conv,
             tanh_out=tanh_out,
             use_checkpoint=use_checkpoint,
+            sequence_block=sequence_block,
+            criss_cross_patch_size=criss_cross_patch_size,
         )
 
     def encode(self, x):
+        x = self.channel_adaptor(x)
         return self.autoencoder.encode(x)
 
     def decode(self, z):
         return self.autoencoder.decode(z)
 
     def reconstruct(self, x):
+        x = self.channel_adaptor(x)
         return self.autoencoder.reconstruct(x)
 
     def forward(self, x, sample_posterior=True, return_posterior=True):

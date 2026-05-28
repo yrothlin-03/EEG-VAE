@@ -6,15 +6,19 @@ import torch.nn.functional as F
 def reconstruction_loss(pred, target, loss_type="l1"):
     if loss_type == "l1":
         return F.l1_loss(pred, target)
-    if loss_type == "mse":
+
+    if loss_type == "l2" or loss_type == "mse":
         return F.mse_loss(pred, target)
+
     if loss_type == "smooth_l1":
         return F.smooth_l1_loss(pred, target)
-    raise ValueError(f"Unknown reconstruction loss: {loss_type}")
+
+    raise ValueError(f"Unknown reconstruction loss type: {loss_type}")
 
 
 def kl_loss(posterior):
-    return posterior.kl().mean()
+    kl = posterior.kl()
+    return torch.mean(kl)
 
 
 def spectral_loss(pred, target, loss_type="l1", eps=1e-8):
@@ -43,7 +47,7 @@ class PretrainingLoss(nn.Module):
         rec_weight=1.0,
         kl_weight=1e-6,
         spectral_weight=0.1,
-        rec_loss_type="l1",
+        rec_loss_type="smooth_l1",
         spectral_loss_type="l1",
     ):
         super().__init__()
@@ -80,11 +84,12 @@ class VAEGANLoss(nn.Module):
         rec_weight=1.0,
         kl_weight=1e-6,
         spectral_weight=0.1,
-        adversarial_weight=0.1,
-        rec_loss_type="l1",
+        adversarial_weight=0.01,
+        rec_loss_type="smooth_l1",
         spectral_loss_type="l1",
     ):
         super().__init__()
+
         self.pretraining_loss = PretrainingLoss(
             rec_weight=rec_weight,
             kl_weight=kl_weight,
@@ -92,10 +97,12 @@ class VAEGANLoss(nn.Module):
             rec_loss_type=rec_loss_type,
             spectral_loss_type=spectral_loss_type,
         )
+
         self.adversarial_weight = adversarial_weight
 
     def generator_loss(self, pred, target, posterior, logits_fake):
         base_loss, logs = self.pretraining_loss(pred, target, posterior)
+
         adv = generator_hinge_loss(logits_fake)
         total = base_loss + self.adversarial_weight * adv
 
@@ -103,14 +110,35 @@ class VAEGANLoss(nn.Module):
             **logs,
             "loss": total.detach(),
             "adv_loss": adv.detach(),
+            "generator_loss": total.detach(),
         }
 
         return total, logs
 
     def discriminator_loss(self, logits_real, logits_fake):
         loss = discriminator_hinge_loss(logits_real, logits_fake)
-        logs = {"disc_loss": loss.detach()}
+
+        logs = {
+            "disc_loss": loss.detach(),
+            "logits_real": logits_real.mean().detach(),
+            "logits_fake": logits_fake.mean().detach(),
+        }
+
         return loss, logs
+
+
+
+
+
+
+
+
+class JEPA_Loss(nn.Module):
+    pass
+
+
+
+
 
 
 if __name__ == "__main__":

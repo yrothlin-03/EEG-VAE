@@ -29,6 +29,8 @@ class AutoencoderKL(nn.Module):
         resamp_with_conv=True,
         tanh_out=False,
         use_checkpoint=False,
+        sequence_block="attention",
+        criss_cross_patch_size=200,
     ):
         super().__init__()
 
@@ -52,6 +54,8 @@ class AutoencoderKL(nn.Module):
             resamp_with_conv=resamp_with_conv,
             double_z=True,
             use_checkpoint=use_checkpoint,
+            sequence_block=sequence_block,
+            criss_cross_patch_size=criss_cross_patch_size,
         )
 
         self.decoder = Decoder(
@@ -66,6 +70,7 @@ class AutoencoderKL(nn.Module):
             resamp_with_conv=resamp_with_conv,
             tanh_out=tanh_out,
             use_checkpoint=use_checkpoint,
+            sequence_block=sequence_block,
         )
 
         self.quant_conv = nn.Conv1d(2 * z_channels, 2 * embed_dim, kernel_size=1)

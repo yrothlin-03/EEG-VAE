@@ -137,7 +137,8 @@ def test_autoencoder_kl():
 def test_eeg_vae():
     model = EEGVAE(
         in_channels=8,
-        adapted_channels=8,
+        out_channels=8,
+        adapted_channels=12,
         adaptor_layers=2,
         z_channels=4,
         ch=16,
@@ -147,7 +148,8 @@ def test_eeg_vae():
     )
     x = torch.randn(2, 8, 32)
     y, posterior = model(x, sample_posterior=False, return_posterior=True)
-    reconstruction = model.reconstruct(model.channel_adaptor(x))
+    encoded = model.encode(x)
+    reconstruction = model.reconstruct(x)
 
     print_model("EEGVAE", model)
     print_shapes(
@@ -155,12 +157,15 @@ def test_eeg_vae():
         output=y,
         reconstruction=reconstruction,
         posterior_mean=posterior.mean,
+        encoded_mean=encoded.mean,
     )
 
     assert y.shape == x.shape
     assert reconstruction.shape == x.shape
     assert posterior.mean.shape == (2, 4, 16)
+    assert encoded.mean.shape == posterior.mean.shape
     assert_finite(y)
+    assert_finite(reconstruction)
     backward_check(y, model)
 
 

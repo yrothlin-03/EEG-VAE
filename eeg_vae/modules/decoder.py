@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
-from .encoder import AttnBlock, Normalize, nonlinearity, ResnetBlock
+from .encoder import Normalize, ResnetBlock, make_sequence_block, nonlinearity, normalize_sequence_block
 
 class Upsample(nn.Module):
     def __init__(self, in_channels, with_conv=True):
@@ -32,6 +32,7 @@ class Decoder(nn.Module):
         tanh_out=False,
         give_pre_end=False,
         use_checkpoint=False,
+        sequence_block="attention",
     ):
         super().__init__()
 
@@ -41,6 +42,7 @@ class Decoder(nn.Module):
         self.tanh_out = tanh_out
         self.give_pre_end = give_pre_end
         self.resolution = resolution
+        self.sequence_block = normalize_sequence_block(sequence_block)
 
         block_in = ch * ch_mult[-1]
 
@@ -54,7 +56,11 @@ class Decoder(nn.Module):
 
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(block_in, block_in, dropout)
-        self.mid.attn_1 = AttnBlock(block_in)
+        self.mid.attn_1 = make_sequence_block(
+            self.sequence_block,
+            block_in,
+            dropout=dropout,
+        )
         self.mid.block_2 = ResnetBlock(block_in, block_in, dropout)
 
         self.up = nn.ModuleList()
@@ -80,7 +86,13 @@ class Decoder(nn.Module):
                 block_in = block_out
 
                 if curr_res is not None and curr_res in attn_resolutions:
-                    attn.append(AttnBlock(block_in))
+                    attn.append(
+                        make_sequence_block(
+                            self.sequence_block,
+                            block_in,
+                            dropout=dropout,
+                        )
+                    )
 
             up = nn.Module()
             up.block = block

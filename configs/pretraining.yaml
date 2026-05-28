@@ -1,0 +1,81 @@
+data:
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/TUEG/tueg.lmdb
+  batch_size: 64
+  split_ratio: [0.9, 0.05, 0.0]
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: false
+  seed: 42
+  channel_mode: "mapped"
+
+
+
+training:
+  recon_figures_dir: /home/infres/yrothlin-24/EEG-VAE/logs/pretraining/reconstruction_figures
+  loss_dir: /home/infres/yrothlin-24/EEG-VAE/logs/pretraining/losses
+  model_checkpoint_dir: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining
+  num_epochs: 30
+  device: "cuda"
+  optimizer: "adamw"
+  scheduler: "cosine"
+  lr: 0.0001
+  discriminator_lr: 0.0002
+  weight_decay: 0.01
+  discriminator_weight_decay: 0.0
+  betas: [0.5, 0.9]
+  grad_clip: 1.0
+  use_amp: false
+  log_step: 50
+  max_step_train: 200
+  max_step_val: 50
+  recon_loss: "smooth_l1"
+  adversarial_start_epoch: 5
+  discriminator_update_freq: 1
+  generator_update_freq: 1
+
+  loss:
+    rec_weight: 1.0
+    kl_weight: 0.00001
+    spectral_weight: 0.1
+    adversarial_weight: 0.01
+
+    rec_loss_type: "smooth_l1"
+    spectral_loss_type: "l1"
+
+
+
+
+model:
+  in_channels: 19
+  out_channels: 19
+
+  adapted_channels: 64
+  adaptor_layers: 2
+
+  z_channels: 16
+  embed_dim: 16
+
+  ch: 64
+  ch_mult: [1, 2, 4]
+
+  num_res_blocks: 2
+  attn_resolutions: []
+
+  resolution: null
+
+  dropout: 0.0
+  resamp_with_conv: true
+
+  tanh_out: false
+  use_checkpoint: false
+  sequence_block: mamba  # attention, mamba
+  criss_cross_patch_size: 200
+
+
+discriminator:
+  in_channels: 19
+  ndf: 64
+  n_layers: 3
+  use_actnorm: false
+
+
