@@ -17,7 +17,7 @@
   block/.style={draw, rounded corners=5pt, align=center, inner sep=6pt,
                 font=\small},
   loss/.style={draw, rounded corners=4pt, align=center, fill=cYellow,
-               inner sep=5pt, minimum width=1.9cm, font=\small},
+               inner sep=5pt, minimum width=2.1cm, font=\small},
   arr/.style={->, thick, >=Stealth}
 ]
 
@@ -50,13 +50,13 @@
   Mid.\ Attn
 };
 
-\node[block, fill=cRed!60!white, minimum width=2.5cm, minimum height=3.0cm,
+\node[block, fill=cRed!50!white, minimum width=2.7cm, minimum height=3.4cm,
       right=0.8cm of enc] (vq) {
-  \textbf{VQ Layer}\\[5pt]
-  \scriptsize $E \in \mathbb{R}^{K \times d}$\\[5pt]
-  $z_q = e_k$\\[2pt]
-  \tiny $k = \arg\min_i \lVert z_e - e_i \rVert$\\[5pt]
-  \scriptsize Straight-through\\[-2pt]gradient
+  \textbf{RVQ} ($Q$ stages)\\[5pt]
+  \scriptsize $z_{q,i} = \mathrm{VQ}_i(r_{i-1})$\\[2pt]
+  $r_i = r_{i-1} - z_{q,i}$\\[3pt]
+  $z_q = \textstyle\sum_{i=1}^{Q} z_{q,i}$\\[4pt]
+  \tiny EMA codebook\\[-2pt]Straight-through
 };
 
 \node[block, fill=cBlue, minimum width=2.1cm, minimum height=3.0cm,
@@ -75,23 +75,30 @@
   \scriptsize $\hat{x} \in \mathbb{R}^{C \times T}$
 };
 
-%% ── LOSS BOXES (top) ─────────────────────────────────────────────────────────
+%% ── LOSS BOXES (top, all at same height) ─────────────────────────────────────
 
-\node[loss, above=1.5cm of vq] (l_vq) {
-  $\mathcal{L}_{\mathrm{VQ}}$\\[2pt]
-  \scriptsize $\lVert\mathrm{sg}(z_e) - z_q\rVert^2$\\[-1pt]
-  $+\,\beta\lVert z_e - \mathrm{sg}(z_q)\rVert^2$
+\node[loss, above=1.5cm of vq] (l_commit) {
+  $\mathcal{L}_{\mathrm{commit}}$\\[2pt]
+  \scriptsize $\beta\lVert z_e - \mathrm{sg}(z_q)\rVert^2$
 };
 
-\node[loss] (l_rec) at (l_vq -| recon) {
+\node[loss] (l_spectral) at (l_commit -| dec) {
+  $\mathcal{L}_{\mathrm{spec}}$\\[2pt]
+  \scriptsize Multi-scale STFT\\[-1pt]
+  \tiny $n \in \{64,\,128,\,256,\,512\}$
+};
+
+\node[loss] (l_rec) at (l_commit -| recon) {
   $\mathcal{L}_{\mathrm{rec}}$\\[2pt]
   \scriptsize $\lVert x - \hat{x} \rVert^2$
 };
 
-%% ── DISCRIMINATOR (bottom) ───────────────────────────────────────────────────
+%% ── DISCRIMINATOR (bottom, centered on pipeline midpoint) ────────────────────
 
-\node[block, fill=cOrange, minimum width=3.0cm, minimum height=1.5cm,
-      below=2.0cm of vq] (disc) {
+\coordinate (pipeline_mid) at ($(raw)!0.5!(recon)$);
+
+\node[block, fill=cOrange, minimum width=3.0cm, minimum height=1.5cm]
+      (disc) at ($(pipeline_mid) + (0, -3.0cm)$) {
   \textbf{Patch Discriminator}\\[4pt]
   \scriptsize Conv1d$^{\times 3}$ (stride 2)\\[-2pt]
   GAP $\to$ MLP $\to$ score
@@ -99,7 +106,7 @@
 
 \node[loss, fill=cOrange!60!cYellow, below=0.7cm of disc] (l_adv) {
   $\mathcal{L}_{\mathrm{adv}}$\\[2pt]
-  \scriptsize $\ell_{\mathrm{BCE}}(D(\hat{x}),\,1)$
+  \scriptsize $\ell_{\mathrm{hinge}}(D(\hat{x}))$
 };
 
 %% ── ARROWS: main data flow ───────────────────────────────────────────────────
@@ -111,30 +118,29 @@
 \draw[arr] (vq)    -- node[above, font=\tiny, inner sep=2pt] {$z_q$} (dec);
 \draw[arr] (dec)   -- (recon);
 
-%% ── ARROWS: VQ loss ──────────────────────────────────────────────────────────
+%% ── ARROWS: commitment loss ──────────────────────────────────────────────────
 
-\draw[arr] (vq.north) -- (l_vq.south);
+\draw[arr] (vq.north) -- (l_commit.south);
 
-%% ── ARROWS: reconstruction loss ─────────────────────────────────────────────
+%% ── ARROWS: L_rec and L_spec (both compare x̂ vs x) ─────────────────────────
 
-\draw[arr] (recon.north) -- (l_rec.south);
-\coordinate (routeTop) at ($(l_rec.north) + (0, 0.5cm)$);
-\draw[arr, dashed] (raw.north) |- (routeTop) -- (l_rec.north);
+% Trunk from recon going up, forks into l_rec and l_spectral above the blocks
+\coordinate (fork) at ($(recon.north) + (0, 1.8cm)$);
+\draw[thick] (recon.north) -- (fork);
+\draw[arr]   (fork) -- (l_rec.south);
+\draw[arr]   (fork) -| (l_spectral.south);
+
+% Dashed: raw x as target for both L_rec and L_spec
+\coordinate (rawTop) at (0, 5.5cm);
+\draw[dashed] (raw.north) -- (rawTop);
+\draw[arr, dashed] (rawTop) -| (l_spectral.north);
+\draw[arr, dashed] (rawTop) -| (l_rec.north);
 
 %% ── ARROWS: discriminator ────────────────────────────────────────────────────
 
 \draw[arr] (raw.south)   |- (disc.west);
 \draw[arr] (recon.south) |- (disc.east);
 \draw[arr] (disc.south)  -- (l_adv.north);
-
-%% ── TOTAL LOSS LABEL ─────────────────────────────────────────────────────────
-
-\node[draw, rounded corners=4pt, fill=white, font=\normalsize,
-      align=center, inner sep=10pt, below=0.5cm of l_adv] (total) {
-  $\mathcal{L}_{\mathrm{tot}} = \mathcal{L}_{\mathrm{rec}}
-  + \mathcal{L}_{\mathrm{VQ}}
-  + \lambda_{\mathrm{adv}}\,\mathcal{L}_{\mathrm{adv}}$
-};
 
 \end{tikzpicture}
 \end{document}

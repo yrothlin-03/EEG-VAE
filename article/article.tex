@@ -67,27 +67,75 @@ Ton résumé ici (150–200 mots).
 
 \section{Introduction}
 
-- EEG
+Electroencephalography (EEG) measures the brain's electrical activity through electrodes placed on the scalp, capturing oscillatory dynamics across a broad frequency spectrum with millisecond temporal resolution \citep{article, MULLERPUTZ2020249}.
+These properties make EEG a central modality in brain-computer interfaces (BCIs), with applications spanning motor imagery \citep{939829}, imagined speech decoding \citep{article1}, cognitive monitoring, and clinical diagnosis.
+Yet EEG signals are inherently noisy, non-stationary, and highly subject-specific, which makes decoding a notoriously difficult problem.
+Traditional approaches relied on hand-crafted features and shallow classifiers, but deep learning has substantially improved performance across tasks~\citep{article0}.
+Despite this progress, most methods remain task-specific and require large labeled datasets for each new application---a bottleneck that severely limits their clinical and real-world deployment.
 
-Contributions :
-- goal of the paper : propose a variational autoencoder (VAE) for EEG data called EEG-VAE
-- propose a 2 stage pretraining pipeline to enforce the learninf of more semantic representations.
-- analyze the relevance of the mamba architecture for EEG data.
-- evaluate the learned representations with a faire and unbiased comparison with other foundation models with a focus on imagined speech decoding modality.
+The success of large pretrained models in natural language processing and computer vision has inspired a growing body of work on \emph{EEG foundation models}---models trained on diverse, unlabeled EEG corpora and then adapted to downstream tasks via lightweight probing~\citep{alain2017understanding}.
+Several such models have been proposed recently, leveraging the Transformer architecture~\citep{NIPS2017_3f5ee243} with masked reconstruction as the pretraining objective: EEGPT~\citep{NEURIPS2024_4540d267}, CBraMod~\citep{wang2025cbramod}, REVE~\citep{ouahidi2026reve}, and CSBrain~\citep{zhou2026csbrain}.
+In parallel, state space models (SSMs) such as Mamba~\citep{gu2024mamba} and Mamba-2~\citep{pmlr-v235-dao24a} have emerged as efficient alternatives to attention-based architectures, with linear complexity in sequence length---a desirable property for long EEG recordings.
+EEGMamba~\citep{WANG2025107816}, FEMBA~\citep{DBLP:journals/corr/abs-2502-06438}, LUNA~\citep{doner2025luna}, and LuMamba~\citep{unknown2} explore this direction, but their pretraining objectives remain anchored to pixel-space reconstruction in the input signal domain.
+
+We argue that reconstruction in the raw signal space is a suboptimal pretraining objective for learning \emph{semantic} EEG representations.
+First, raw EEG contains substantial low-level noise and physiological artifacts that do not carry task-relevant information; a model trained to reconstruct them may allocate significant capacity to irrelevant details.
+Second, patch-based masked reconstruction encourages local pattern matching rather than higher-level semantic structure.
+VAE-based approaches for EEG~\citep{ZHAO2024120946, s25103178} alleviate some of these issues by learning a compressed latent space, but they have not been scaled to large corpora or combined with structured self-supervised pretraining.
+In other domains---audio compression with EnCodec~\citep{défossez2022highfidelityneuralaudio}, image tokenization with RQ-VAE~\citep{9879532}, and medical imaging with MedVAE~\citep{varma2025medvaeefficientautomatedinterpretation}---residual vector quantization has demonstrated that discrete, hierarchical codebooks provide compact yet expressive representations that benefit downstream modeling.
+
+In this work, we introduce \textbf{EEG-RQVAE}, a foundation model for EEG based on a Residual Quantized Variational Autoencoder trained with a two-stage pretraining pipeline designed to learn increasingly semantic representations.
+In the first stage, the model is trained to reconstruct a clean, augmented view of the EEG from a corrupted input, leveraging denoising as an implicit regularizer while a patch discriminator enforces signal fidelity.
+In the second stage, we adapt the encoder using a Joint-Embedding Predictive Architecture~\citep{assran2023selfsupervisedlearningimagesjointembedding} in latent space, predicting the representations of masked spatial and temporal regions from visible context---encouraging the model to capture the structured, predictive dependencies that underlie brain dynamics.
+Throughout both stages, we use bidirectional Mamba blocks as the backbone, enabling efficient modeling of long EEG sequences while respecting the temporal symmetry of brain signals.
+
+Our main contributions are:
+\begin{itemize}
+  \item \textbf{EEG-RQVAE}: a residual vector-quantized VAE for multi-channel EEG that produces discrete, hierarchical token sequences suitable for both generative and discriminative downstream use.
+  \item \textbf{A two-stage pretraining pipeline}: combining denoising reconstruction (Stage 1) with latent JEPA-style adaptation (Stage 2) to progressively enforce semantic representation learning.
+  \item \textbf{An analysis of SSM architectures for EEG}: we investigate the relevance of bidirectional Mamba blocks for spatio-temporal EEG modeling and compare with Transformer baselines.
+  \item \textbf{A fair evaluation benchmark}: we evaluate learned representations with a standardized linear probing protocol across multiple BCI tasks, with a particular focus on imagined speech decoding, and compare against recent EEG foundation models under identical conditions.
+\end{itemize}
 
 
 \section{Method}
 
-\subsection{Pipeline Overview}
+\subsection{Background}
+- introduction to ssm and mamba / mamba 2, the relevance of BiMamba blocks.
+- VQ-VAE and RVQ
+- Jepa
 
-\subsection{EEG-VAE Architecture}
+\subsection{Training pipeline overview}
+- 2 stages : reconstruction and jepa (explain why)
 
-\subsection{Losses}
+\subsection{Architecture}
+- Details over the architectural choices 
 
-\subsection{Pretraining Results and Analysis}
+\subsection{Pretraining : Stage 1}
+- explain the goal of this stage and the different steps / losses involved.
+- developp on the different augmentations and corruptions used and their relevance for EEG data. (the denoising and regularization effects)
+\subsection{Pretraining : Stage 2}
+- explain the goal of this stage and the different steps / losses involved.
 
 
-\section{Downstream Evaluation and Comparisons}
+
+\section{Experiments}
+
+\subsection{Datasets and preprocessing}
+- table which lists the different datasets with BCI task, name, number of channels, montage, duration of events, number of classes, number of subjects and number of samples.
+
+\subsection{Pretraining}
+
+\subsection{Evaluation on downstream tasks}
+- metrics and downstream protocol used for evaluation.
+- we used the code of the models from original papers and integrated it in our pipeline with a linear probe with the same structure but adapted for each model.
+- table with the results across the different models avg + std (best in bold and second best undelined)
+
+
+\section{Limitations and future work}
+
+- I would like to focus on a more applied modality which is imagined speech decoding. Many applications in BCI. Comparison between phonemes and words decoding. …
+
 
 
 \section{Conclusion}
@@ -103,12 +151,15 @@ Contributions :
 \newpage
 \appendix
 \onecolumn
+
 \section{Foundation models used for comparisons}
+- a paragraph for each model describing the main contribution of the architecture / method applied.
 
-
-\section{Datasets details and preprocessing}
+\section{Ablation study on inductive bias on spatial positionning of channels}
 
 \section{Computational analysis}
+-
+
 
 \section{Implementation details}
 

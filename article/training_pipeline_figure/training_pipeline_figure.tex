@@ -1,9 +1,8 @@
 \documentclass[tikz, border=12pt]{standalone}
 \usepackage{tikz}
 \usepackage{amsmath, amssymb}
-\usetikzlibrary{arrows.meta, positioning, calc, backgrounds}
+\usetikzlibrary{arrows.meta, positioning, calc, backgrounds, decorations.pathreplacing}
 
-% Colors consistent with model_figure.tex
 \definecolor{cBlue}{RGB}{159,197,232}
 \definecolor{cGray}{RGB}{215,215,215}
 \definecolor{cYellow}{RGB}{255,229,153}
@@ -12,173 +11,216 @@
 \definecolor{cTeal}{RGB}{86,180,170}
 \definecolor{cPurple}{RGB}{196,175,222}
 \definecolor{cRed}{RGB}{200,60,60}
+\definecolor{cMask}{RGB}{80,80,80}
 
 \begin{document}
 \begin{tikzpicture}[
   >=Stealth, thick,
   block/.style={draw, rounded corners=5pt, align=center, inner sep=6pt, font=\small},
-  loss/.style={draw, rounded corners=4pt, align=center, fill=cYellow,
-               inner sep=6pt, font=\small},
+  loss/.style={draw, rounded corners=4pt, align=center, fill=cYellow, inner sep=6pt, font=\small},
   arr/.style={->, thick, >=Stealth},
-  darr/.style={->, dashed, thick, >=Stealth}
+  darr/.style={->, dashed, thick, >=Stealth},
+  sigline/.style={thin, smooth}
 ]
 
 %%=============================================================================
-%% PANEL A — Stage 1: EEG-VAE Pretraining
+%% STAGE 1 — Reconstruction Pretraining  (main flow lowered to y=3.5)
 %%=============================================================================
 
-%% Source / Reconstruction labels
+\node[font=\large\bfseries] at (8.2, 8.4) {Stage 1: Reconstruction Pretraining};
 \node[font=\small\bfseries] at (1.0, 5.1) {Source};
-\node[font=\small\bfseries] at (14.8, 5.1) {Reconstruction};
 
-%% Main flow
+%% Main flow nodes (y = 3.5)
 \node[block, fill=white, minimum width=1.7cm, minimum height=1.3cm]
-  (raw_a) at (1.0, 4.0) {
+  (raw_a) at (1.0, 3.5) {
   \textbf{Raw EEG}\\[2pt]\scriptsize $x \in \mathbb{R}^{C \times T}$
 };
-\node[block, fill=cGreen, minimum width=1.7cm, minimum height=1.3cm]
-  (adapt_a) at (3.7, 4.0) {
-  Channel\\Adaptor
+\node[block, fill=cGreen, minimum width=2.1cm, minimum height=1.4cm]
+  (view_a) at (3.5, 3.5) {
+  Augment\\[2pt]
+  \scriptsize time shift\\[-1pt]
+  \scriptsize amplitude scale
 };
-\node[block, fill=cBlue, minimum width=1.7cm, minimum height=1.7cm]
-  (enc_a) at (6.4, 4.0) {
-  \textbf{Encoder}
+\node[block, fill=cOrange, minimum width=2.2cm, minimum height=1.4cm]
+  (corr_a) at (8.0, 3.5) {
+  Corrupt\\[2pt]
+  \scriptsize ch.\ dropout\\[-1pt]
+  \scriptsize noise + time mask
 };
-\node[block, fill=cGray, minimum width=1.9cm, minimum height=1.7cm]
-  (lat_a) at (9.3, 4.0) {
-  \textbf{Latent} $z$\\[3pt]\scriptsize $\mathcal{N}(\mu,\sigma^2)$
-};
-\node[block, fill=cBlue, minimum width=1.7cm, minimum height=1.7cm]
-  (dec_a) at (12.2, 4.0) {
-  \textbf{Decoder}
+\node[block, fill=cBlue, minimum width=2.3cm, minimum height=1.4cm]
+  (rqvae_a) at (12.5, 3.5) {
+  \textbf{EEG-RQVAE}
 };
 \node[block, fill=white, minimum width=1.7cm, minimum height=1.3cm]
-  (recon_a) at (14.8, 4.0) {
-  \textbf{Recon.\ EEG}\\[2pt]\scriptsize $\hat{x}$
+  (recon_a) at (15.4, 3.5) {
+  \textbf{Recon.}\\[2pt]\scriptsize $\hat{x}$
 };
 
-%% Loss boxes
-\node[loss, minimum width=2.3cm] (l_rec_a) at (7.2, 2.0) {
-  $\mathcal{L}_{\mathrm{rec}}$\\[1pt]\scriptsize $\|x - \hat{x}\|^2$
+%% Discriminator (y = 5.7) and L_adv (y = 7.2)
+\node[block, fill=cPurple, minimum width=2.3cm, minimum height=1.3cm]
+  (disc) at (10.0, 5.7) {
+  \textbf{Discriminator}
 };
-\node[loss, minimum width=2.3cm] (l_kl_a) at (10.2, 2.0) {
-  $\mathcal{L}_{\mathrm{KL}}$\\[1pt]\scriptsize $\mathrm{KL}(q_\phi \| p)$
-};
-\node[loss, fill=cOrange!70!cYellow, minimum width=2.3cm] (l_adv_a) at (13.2, 2.0) {
+\node[loss, fill=cOrange!70!cYellow, minimum width=2.2cm]
+  (l_adv_a) at (10.0, 7.2) {
   $\mathcal{L}_{\mathrm{adv}}$\\[1pt]\scriptsize $\ell_{\mathrm{BCE}}(D(\hat{x}),1)$
 };
 
-%% Title
-\node[font=\large\bfseries] at (8.0, 5.7) {Stage 1: EEG-VAE Pretraining};
-
-%% Main flow arrows
-\draw[arr] (raw_a)   -- (adapt_a);
-\draw[arr] (adapt_a) -- (enc_a);
-\draw[arr] (enc_a)   -- (lat_a);
-\draw[arr] (lat_a)   -- (dec_a);
-\draw[arr] (dec_a)   -- (recon_a);
-
-%% Loss arrows
-% Both raw and recon feed L_rec (dashed = comparison, not gradient path)
-\draw[darr] (raw_a.south)   -- ++(0,-.45) -| (l_rec_a.north);
-\draw[darr] (recon_a.south) -- ++(0,-.45) -| (l_rec_a.north);
-% KL from latent
-\draw[arr]  (lat_a.south)   -- ++(0,-.45) -| (l_kl_a.north);
-% Adv from recon
-\draw[arr]  (recon_a.south) -- ++(0,-.45) -| (l_adv_a.north);
-
-%% Panel A dashed border + label
-\draw[dashed, thick, rounded corners=8pt]
-  (-0.1, 1.1) rectangle (16.4, 6.3);
-\node[font=\Large\bfseries] at (-0.0, 6.1) {\textbf{a}};
-
-%%=============================================================================
-%% PANEL B — Stage 2: EEG-JEPA Adaptation
-%%=============================================================================
-
-%% Masked EEG input (vertically centered between the two paths)
-\node[block, fill=white, minimum width=1.8cm, minimum height=2.6cm]
-  (masked) at (1.0, -5.0) {
-  \textbf{Masked}\\[-1pt]\textbf{EEG}\\[5pt]
-  \scriptsize Patched\\[-2pt]input
+%% Loss boxes (y = 1.0)
+\node[loss, minimum width=2.55cm] (l_rec_a) at (5.7, 1.0) {
+  $\mathcal{L}_{\mathrm{rec}}$\\[1pt]\scriptsize $\|x_{\mathrm{tgt}} - \hat{x}\|^2$
+};
+\node[loss, minimum width=2.6cm] (l_stft_a) at (9.5, 1.0) {
+  $\mathcal{L}_{\mathrm{STFT}}$\\[1pt]\scriptsize multi-scale STFT
+};
+\node[loss, minimum width=2.45cm] (l_vq_a) at (12.5, 1.0) {
+  $\mathcal{L}_{\mathrm{VQ}}$\\[1pt]\scriptsize RVQ commitment
 };
 
-%% TOP PATH — visible patches
+%% x_tgt coordinate (midpoint of view_a→corr_a arrow, used only for loss arrow)
+\coordinate (tgt_coord) at ($(view_a.east)!0.5!(corr_a.west)$);
+
+%% Main flow arrows
+\draw[arr] (raw_a.east)  -- (view_a.west);
+\draw[arr] (view_a.east) -- (corr_a.west);
+\draw[arr] (corr_a.east) -- (rqvae_a.west);
+\draw[arr] (rqvae_a.east) -- (recon_a.west);
+
+%% x_tgt label (left quarter of arrow)
+\node[font=\small, above] at ($(view_a.east)!0.28!(corr_a.west)+(0,0.18)$) {$x_{\mathrm{tgt}}$};
+%% x_in label
+\node[font=\small, above] at ($(corr_a.east)!0.5!(rqvae_a.west)+(0,0.18)$) {$x_{\mathrm{in}}$};
+
+%% (not corrupted) — to the left of the x_tgt downward arrow (x≈5.73)
+\node[font=\tiny, text=cRed, anchor=east] at (5.55, 2.4) {(not corrupted)};
+
+%% Discriminator: real from view_a.north (up then RIGHT → arrives perpendicular to disc.west)
+%% |- means: vertical first, then horizontal → arrival horizontal into left face of disc
+\draw[darr] (view_a.north) |- (disc.west);
+\node[font=\tiny, text=cRed, above] at (6.2, 5.72) {real};
+\draw[darr] (recon_a.north) -- (recon_a.north |- disc.east) -- (disc.east);
+\node[font=\tiny, text=cRed, above] at (13.8, 5.72) {fake};
+\draw[arr] (disc.north) -- (l_adv_a.south);
+
+%% Loss arrows — each from a distinct source to avoid overlaps
+%% L_rec: x_tgt (straight down) + recon_a (down then far left)
+\draw[darr] (tgt_coord) -- (l_rec_a.north);
+\draw[darr] ([xshift=-0.15cm]recon_a.south) -- ++(0,-0.5) -| (l_rec_a.north);
+%% L_stft: recon_a only (slightly right-offset, down then left)
+\draw[darr] ([xshift=0.15cm]recon_a.south) -- ++(0,-0.8) -| (l_stft_a.north);
+%% L_vq: straight down from EEG-RQVAE
+\draw[arr] (rqvae_a.south) -- (l_vq_a.north);
+
+%% Panel border
+\draw[dashed, thick, rounded corners=8pt]
+  (-0.1, 0.3) rectangle (17.1, 9.0);
+
+%%=============================================================================
+%% STAGE 2 — EEG-JEPA Adaptation (pipeline lowered by 0.4, encoders shifted right)
+%%=============================================================================
+
+%% EEG input block
+\node[block, fill=white, minimum width=2.8cm, minimum height=3.2cm]
+  (masked) at (1.5, -5.4) {};
+\node[font=\small\bfseries] at ($(masked.north)+(0,-0.27)$) {EEG};
+\node[font=\scriptsize] at ($(masked.north)+(0,-0.60)$) {$x \in \mathbb{R}^{C \times T}$};
+
+\begin{scope}[shift={($(masked.south west)+(0.30,0.50)$)}]
+  \draw[sigline, color=cBlue, line width=0.8pt] plot[smooth] coordinates {
+    (0,0.00)(.24,.07)(.48,-.04)(.72,.08)(.96,-.03)(1.20,.06)(1.44,-.03)(1.68,.07)(1.92,-.02)
+  };
+  \fill[cMask!50!white, opacity=0.90] (0.56,-0.07) rectangle (0.96,0.14);
+
+  \fill[cMask, opacity=0.40] (0,0.30) rectangle (1.92,0.52);
+
+  \draw[sigline, color=cTeal, line width=0.8pt] plot[smooth] coordinates {
+    (0,0.78)(.24,.84)(.48,.74)(.72,.85)(.96,.75)(1.20,.83)(1.44,.76)(1.68,.84)(1.92,.76)
+  };
+
+  \fill[cMask, opacity=0.40] (0,1.06) rectangle (1.92,1.28);
+
+  \draw[sigline, color=cPurple, line width=0.8pt] plot[smooth] coordinates {
+    (0,1.56)(.24,1.62)(.48,1.52)(.72,1.63)(.96,1.53)(1.20,1.61)(1.44,1.54)(1.68,1.62)(1.92,1.54)
+  };
+  \fill[cMask!50!white, opacity=0.90] (1.20,1.49) rectangle (1.60,1.70);
+  %% brace removed
+\end{scope}
+
+\node[font=\tiny, align=left, below=0.05cm of masked] {
+  \tikz[baseline=-1pt]{\fill[cMask,opacity=.40] (0,0) rectangle (.22,.10);}\;full ch.\
+  \tikz[baseline=-1pt]{\fill[cMask!50!white,opacity=.90] (0,0) rectangle (.22,.10);}\;time block
+};
+
+%% TOP PATH (y = -4.1, ctx_enc shifted right to x=5.0)
 \node[block, fill=cBlue, minimum width=1.9cm, minimum height=1.4cm]
-  (ctx_enc) at (4.4, -3.7) {
+  (ctx_enc) at (5.0, -4.1) {
   \textbf{Context}\\[-2pt]\textbf{Encoder}$^*$
 };
 \node[block, fill=cGray, minimum width=1.9cm, minimum height=1.4cm]
-  (ctx_lat) at (7.4, -3.7) {
-  Context\\Latent
+  (ctx_lat) at (7.6, -4.1) {
+  Context\\Latent\\[-1pt]\scriptsize visible
 };
 \node[block, fill=cOrange, minimum width=1.9cm, minimum height=1.4cm]
-  (jepa_pred) at (10.4, -3.7) {
+  (jepa_pred) at (10.6, -4.1) {
   \textbf{JEPA}\\[-2pt]\textbf{Predictor}
 };
 \node[block, fill=cGray, minimum width=1.9cm, minimum height=1.4cm]
-  (pred_tgt) at (13.5, -3.7) {
-  Predicted\\Target
+  (pred_tgt) at (13.6, -4.1) {
+  Predicted\\Latents\\[-1pt]\scriptsize masked pos.
 };
 
-%% BOTTOM PATH — target patches (EMA encoder)
+%% BOTTOM PATH (y = -6.7, tgt_enc shifted right to x=5.0)
 \node[block, fill=cTeal, minimum width=1.9cm, minimum height=1.4cm]
-  (tgt_enc) at (4.4, -6.3) {
+  (tgt_enc) at (5.0, -6.7) {
   \textbf{Target}\\[-2pt]\textbf{Encoder}$^*$
 };
 \node[block, fill=cGray, minimum width=1.9cm, minimum height=1.4cm]
-  (tgt_lat) at (7.4, -6.3) {
-  Target\\Latent
+  (tgt_lat) at (7.6, -6.7) {
+  Target\\Latents\\[-1pt]\scriptsize masked pos.
 };
 
-%% JEPA loss box
-\node[loss, minimum width=2.6cm] (l_jepa) at (13.5, -5.8) {
-  $\mathcal{L}_{\mathrm{JEPA}}$\\[3pt]
-  \scriptsize Latent prediction loss
+%% JEPA loss (centered between top and bottom paths)
+\node[loss, minimum width=2.4cm] (l_jepa) at (15.8, -5.4) {
+  $\mathcal{L}_{\mathrm{JEPA}}$\\[2pt]\scriptsize latent pred.\ loss
 };
 
 %% Titles
-\node[font=\large\bfseries] at (8.2, -2.2) {Stage 2: EEG-JEPA Adaptation};
-\node[font=\small, text=cRed] at (8.2, -2.85)
+\node[font=\large\bfseries] at (8.5, -2.2) {Stage 2: EEG-JEPA Adaptation};
+\node[font=\scriptsize, text=cRed] at (10.6, -2.6)
   {Encoder weights initialized from Stage 1};
 
-%% Path annotations
-\node[font=\scriptsize, above right=0.0cm and -1.0cm of ctx_enc]
-  {visible patches};
-\node[font=\scriptsize, below right=0.0cm and -1.0cm of tgt_enc]
-  {masked patches};
-% EMA label between the two encoder columns
+%% Annotations
+\node[font=\scriptsize, above=0.05cm of ctx_enc, xshift=-0.5cm]
+  {visible channels / time blocks};
+\node[font=\scriptsize, below=0.05cm of tgt_enc, xshift=-0.6cm]
+  {masked channels + time blocks};
 \node[font=\scriptsize\itshape, align=center]
-  at ($(ctx_enc)!0.5!(tgt_enc) + (0, -0.1)$) {EMA\\[-2pt]stop-grad};
+  at ($(ctx_enc)!0.5!(tgt_enc)$) {EMA\\[-2pt]stop-grad};
 
-%% compare label
-\node[font=\scriptsize, right=0.1cm of pred_tgt, yshift=-0.3cm]
-  {compare};
+%% Top path arrows
+\draw[arr] (masked.east) -- ++(0.55,0) |- (ctx_enc.west);
+\draw[arr] (ctx_enc)   -- (ctx_lat);
+\draw[arr] (ctx_lat)   -- (jepa_pred);
+\draw[arr] (jepa_pred) -- (pred_tgt);
 
-%% Arrows — top path
-\draw[arr] (masked.east) -- ++(0.5,0) |- (ctx_enc.west);
-\draw[arr] (ctx_enc)     -- (ctx_lat);
-\draw[arr] (ctx_lat)     -- (jepa_pred);
-\draw[arr] (jepa_pred)   -- (pred_tgt);
+%% Bottom path arrows
+\draw[arr] (masked.east) -- ++(0.55,0) |- (tgt_enc.west);
+\draw[arr] (tgt_enc) -- (tgt_lat);
 
-%% Arrows — bottom path
-\draw[arr] (masked.east) -- ++(0.5,0) |- (tgt_enc.west);
-\draw[arr] (tgt_enc)     -- (tgt_lat);
+%% Arrows into L_jepa (perpendicular: -| = horiz then vert)
+\draw[arr] (pred_tgt.east) -| (l_jepa.north);
+\draw[arr] (tgt_lat.east) -- ++(5.85,0) -| (l_jepa.south);
 
-%% Arrows — into loss
-\draw[arr] (pred_tgt.east) -- ++(0.35,0) |- (l_jepa.north);
-\draw[arr] (tgt_lat.east)  -- ++(0.8, 0) |- (l_jepa.south);
-
-%% Backprop arrow (dashed, from loss back to predictor)
+%% Backprop: left then up (jepa_pred.south |- l_jepa.west) = (10.6, -5.4)
 \draw[darr, color=cRed, thin]
-  (l_jepa.north west) to[out=140, in=-40]
-  node[midway, above, font=\tiny, text=cRed] {backprop}
-  (jepa_pred.south east);
+  (l_jepa.west)
+  -- node[above, font=\tiny, text=cRed] {backprop}
+  (jepa_pred.south |- l_jepa.west)
+  -- (jepa_pred.south);
 
-%% Panel B dashed border + label
+%% Panel border
 \draw[dashed, thick, rounded corners=8pt]
-  (-0.1, -1.4) rectangle (16.4, -8.2);
-\node[font=\Large\bfseries] at (-0.0, -1.6) {\textbf{b}};
+  (-0.1, -1.4) rectangle (17.55, -8.6);
 
 \end{tikzpicture}
 \end{document}
