@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
-from .encoder import Normalize, ResnetBlock, make_sequence_block, nonlinearity, normalize_sequence_block
+from .encoder import MambaEEGBlock, Normalize, ResnetBlock, make_sequence_block, nonlinearity, normalize_sequence_block
 
 class Upsample(nn.Module):
     def __init__(self, in_channels, with_conv=True):
@@ -115,7 +115,9 @@ class Decoder(nn.Module):
         )
 
     def _run(self, module, *args):
-        if self.use_checkpoint and self.training:
+        # MambaEEGBlock uses custom CUDA kernels with a nested autocast(enabled=False)
+        # that is not correctly restored during checkpoint recomputation — run it normally.
+        if self.use_checkpoint and self.training and not isinstance(module, MambaEEGBlock):
             return checkpoint(module, *args, use_reentrant=False)
         return module(*args)
 

@@ -1,0 +1,86 @@
+data:
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/TUEG/tueg.lmdb
+  batch_size: 32
+  split_ratio: [0.9, 0.05, 0.0]
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: false
+  seed: 42
+  channel_mode: "mapped"
+
+
+phase1:
+  checkpoint: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/pretraining_final.pt
+
+
+training:
+  loss_dir: /home/infres/yrothlin-24/EEG-VAE/logs/jepa/losses
+  model_checkpoint_dir: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/jepa
+
+  num_epochs: 30
+  device: "cuda"
+  optimizer: "adamw"
+  scheduler: "cosine"
+  lr: 0.00002          # was 0.0001 — encoder must change slowly enough for EMA target to track it
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+  use_amp: true
+  max_step_train: 200
+  max_step_val: 50
+
+  jepa:
+    block_size: 25          # tokens per temporal block (~500 ms at 200 Hz with 4× compression)
+    target_ratio: 0.25      # fraction of temporal blocks to predict (≈25% of the sequence)
+    ema_momentum: 0.999     # final EMA momentum (was 0.996 — higher for more target stability)
+    ema_momentum_warmup: true   # cosine schedule 1.0 → ema_momentum (fixes loss-growing-up issue)
+    channel_mask_ratio: 0.0     # disabled — re-enable to 0.1-0.25 once base JEPA loss decreases
+
+  loss:
+    loss_type: "mse"      # "mse" or "smooth_l1"
+
+
+# Phase 1 model config — must match exactly what was used to train the VQ-VAE
+model:
+  model_type: "vq"
+
+  in_channels: 19
+  out_channels: 19
+
+  adapted_channels: 64
+  adaptor_layers: 2
+
+  z_channels: 16
+  embed_dim: 16
+
+  # Note: ch and vq_n_quantizers are auto-detected from the Phase 1 checkpoint
+  # by build_jepa_model() — values here serve as fallback only.
+  ch: 128
+  ch_mult: [1, 2, 4]
+
+  num_res_blocks: 2
+  attn_resolutions: []
+  resolution: null
+
+  dropout: 0.0
+  resamp_with_conv: true
+
+  tanh_out: false
+  use_checkpoint: true
+  sequence_block: mamba
+  criss_cross_patch_size: 200
+
+  vq_num_embeddings: 512
+  vq_commitment_cost: 0.25
+  vq_decay: 0.99
+  vq_n_quantizers: 8
+
+
+# Predictor hyperparameters
+predictor:
+  embed_dim: 16           # must match model.embed_dim
+  predictor_embed_dim: 128
+  num_heads: 4
+  num_layers: 4
+  max_seq_len: 2048       # ≥ T // compression_factor (e.g. 6000 // 4 = 1500)
+  dropout: 0.0

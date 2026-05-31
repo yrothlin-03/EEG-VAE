@@ -6,7 +6,7 @@
 #SBATCH --mem=48G
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --job-name=pretraining_eegvae
+#SBATCH --job-name=pretraining_eegvae_rvq
 #SBATCH --output=logs/pretraining/%x_%j.out
 #SBATCH --error=logs/pretraining/%x_%j.err
 

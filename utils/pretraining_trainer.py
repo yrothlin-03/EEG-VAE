@@ -45,6 +45,7 @@ class Trainer:
         self.ae_optimizer_steps_this_epoch = 0
         self.disc_optimizer_steps_this_epoch = 0
         self.loss_history = []
+        self.best_val_loss = float("inf")   # tracked across epochs for best checkpoint
 
         self.model.to(self.device)
         self.discriminator.to(self.device)
@@ -119,18 +120,33 @@ class Trainer:
 
         raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
-    def _get_batch(self, batch):
+    def _split_batch(self, batch):
+        """Return the ``(input, target)`` pair from a pretraining batch.
+
+        The pretraining loader yields ``(x_in, x_tgt)`` — a corrupted input and
+        an uncorrupted (view) target — or ``(x_in, x_tgt, ch_names)``. A bare
+        tensor falls back to ``input == target`` (plain reconstruction).
+        """
         if isinstance(batch, torch.Tensor):
-            return batch
+            return batch, batch
 
         if isinstance(batch, dict):
-            for key in ["x", "eeg", "signal", "data"]:
+            x_in = None
+            for key in ["input", "x_in", "x", "eeg", "signal", "data"]:
                 if key in batch:
-                    return batch[key]
-            raise KeyError(f"Cannot find EEG tensor in batch keys: {list(batch.keys())}")
+                    x_in = batch[key]
+                    break
+            if x_in is None:
+                raise KeyError(
+                    f"Cannot find EEG input tensor in batch keys: {list(batch.keys())}"
+                )
+            x_tgt = batch.get("target", batch.get("x_tgt", x_in))
+            return x_in, x_tgt
 
         if isinstance(batch, (list, tuple)):
-            return batch[0]
+            if len(batch) >= 2 and isinstance(batch[1], torch.Tensor):
+                return batch[0], batch[1]
+            return batch[0], batch[0]
 
         raise TypeError(f"Unsupported batch type: {type(batch)}")
 
@@ -142,15 +158,18 @@ class Trainer:
                 "Your AutoencoderKL should output the original EEG channel count."
             )
 
-    def _forward_autoencoder(self, x, sample_posterior=True):
-        x_adapted = self.model.channel_adaptor(x)
+    def _forward_autoencoder(self, x_in, x_tgt=None, sample_posterior=True):
+        if x_tgt is None:
+            x_tgt = x_in
+
+        x_adapted = self.model.channel_adaptor(x_in)
         pred, posterior = self.model.autoencoder(
             x_adapted,
             sample_posterior=sample_posterior,
             return_posterior=True,
         )
 
-        target = x
+        target = x_tgt
         self._check_reconstruction_shapes(pred, target)
 
         return pred, target, posterior
@@ -224,34 +243,48 @@ class Trainer:
             writer.writeheader()
             writer.writerows(self.loss_history)
 
-    def _save_final_checkpoint(self):
-        self.model_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-        checkpoint = {
+    def _build_checkpoint(self) -> dict:
+        return {
             "epoch": self.current_epoch + 1,
             "global_step": self.global_step,
+            "best_val_loss": self.best_val_loss,
             "model_state_dict": self.model.state_dict(),
             "discriminator_state_dict": self.discriminator.state_dict(),
             "optimizer_ae_state_dict": self.optimizer_ae.state_dict(),
             "optimizer_disc_state_dict": self.optimizer_disc.state_dict(),
             "scheduler_ae_state_dict": (
-                self.scheduler_ae.state_dict()
-                if self.scheduler_ae is not None
-                else None
+                self.scheduler_ae.state_dict() if self.scheduler_ae is not None else None
             ),
             "scheduler_disc_state_dict": (
-                self.scheduler_disc.state_dict()
-                if self.scheduler_disc is not None
-                else None
+                self.scheduler_disc.state_dict() if self.scheduler_disc is not None else None
             ),
             "scaler_state_dict": self.scaler.state_dict(),
             "training_config": self.training_config,
             "loss_history": self.loss_history,
         }
 
+    def _save_final_checkpoint(self):
+        self.model_checkpoint_dir.mkdir(parents=True, exist_ok=True)
         save_path = self.model_checkpoint_dir / "pretraining_final.pt"
-        torch.save(checkpoint, save_path)
+        torch.save(self._build_checkpoint(), save_path)
         print(f"Saved final pretraining checkpoint to {save_path}")
+
+    def _maybe_save_best(self, val_logs: dict):
+        """Save pretraining_best.pt whenever val_loss improves."""
+        val_loss = val_logs.get("val_loss")
+        if val_loss is None or not self._is_finite_number(val_loss):
+            return
+
+        if val_loss < self.best_val_loss:
+            previous = self.best_val_loss
+            self.best_val_loss = float(val_loss)
+            self.model_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            save_path = self.model_checkpoint_dir / "pretraining_best.pt"
+            torch.save(self._build_checkpoint(), save_path)
+            print(
+                f"[CHECKPOINT] val_loss {previous:.6f} → {self.best_val_loss:.6f} "
+                f"— saved best to {save_path}"
+            )
 
     def _is_finite_number(self, value):
         return value == value and value not in (float("inf"), float("-inf"))
@@ -312,10 +345,12 @@ class Trainer:
         weighted_loss_specs = [
             ("rec_loss", "rec_weight", "weighted_rec_loss"),
             ("kl_loss", "kl_weight", "weighted_kl_loss"),
+            ("commitment_loss", "kl_weight", "weighted_commitment_loss"),
             ("spectral_loss", "spectral_weight", "weighted_spectral_loss"),
             ("adv_loss", "adversarial_weight", "weighted_adv_loss"),
             ("val_rec_loss", "rec_weight", "weighted_val_rec_loss"),
             ("val_kl_loss", "kl_weight", "weighted_val_kl_loss"),
+            ("val_commitment_loss", "kl_weight", "weighted_val_commitment_loss"),
             ("val_spectral_loss", "spectral_weight", "weighted_val_spectral_loss"),
             ("val_adv_loss", "adversarial_weight", "weighted_val_adv_loss"),
         ]
@@ -382,6 +417,7 @@ class Trainer:
         train_loader = self.loaders["train"]
 
         total_logs = {}
+        count_logs = {}   # per-key finite-step counter for NaN-safe averaging
         n_steps = 0
         self.ae_optimizer_steps_this_epoch = 0
         self.disc_optimizer_steps_this_epoch = 0
@@ -392,9 +428,10 @@ class Trainer:
             if self.max_step_train is not None and step >= self.max_step_train:
                 break
 
-            x = self._get_batch(batch)
+            x_in, x_tgt = self._split_batch(batch)
 
-            x = x.to(self.device, non_blocking=True)
+            x_in = x_in.to(self.device, non_blocking=True)
+            x_tgt = x_tgt.to(self.device, non_blocking=True)
 
             update_generator = step % self.generator_update_freq == 0
             update_discriminator = (
@@ -406,7 +443,7 @@ class Trainer:
                 self.optimizer_ae.zero_grad(set_to_none=True)
 
                 with autocast(enabled=self.use_amp):
-                    pred, target, posterior = self._forward_autoencoder(x)
+                    pred, target, posterior = self._forward_autoencoder(x_in, x_tgt)
 
                     if use_adversarial:
                         logits_fake = self.discriminator(pred)
@@ -440,7 +477,7 @@ class Trainer:
                 self.optimizer_disc.zero_grad(set_to_none=True)
 
                 with torch.no_grad():
-                    pred, target, _ = self._forward_autoencoder(x)
+                    pred, target, _ = self._forward_autoencoder(x_in, x_tgt)
 
                 with autocast(enabled=self.use_amp):
                     logits_real = self.discriminator(target.detach())
@@ -451,18 +488,21 @@ class Trainer:
                         logits_fake=logits_fake,
                     )
 
-                self.scaler.scale(loss_disc).backward()
+                # Skip the optimizer step entirely if the disc loss blew up —
+                # applying it would corrupt the discriminator weights.
+                if torch.isfinite(loss_disc):
+                    self.scaler.scale(loss_disc).backward()
 
-                if self.grad_clip is not None:
-                    self.scaler.unscale_(self.optimizer_disc)
-                    nn.utils.clip_grad_norm_(
-                        self.discriminator.parameters(),
-                        self.grad_clip,
-                    )
+                    if self.grad_clip is not None:
+                        self.scaler.unscale_(self.optimizer_disc)
+                        nn.utils.clip_grad_norm_(
+                            self.discriminator.parameters(),
+                            self.grad_clip,
+                        )
 
-                self.scaler.step(self.optimizer_disc)
-                self.scaler.update()
-                self.disc_optimizer_steps_this_epoch += 1
+                    self.scaler.step(self.optimizer_disc)
+                    self.scaler.update()
+                    self.disc_optimizer_steps_this_epoch += 1
 
             else:
                 logs_disc = {}
@@ -470,21 +510,18 @@ class Trainer:
             logs = {**logs_ae, **logs_disc}
 
             for key, value in logs.items():
-                total_logs[key] = total_logs.get(key, 0.0) + float(value)
+                v = float(value)
+                if v == v and v not in (float("inf"), float("-inf")):  # isfinite
+                    total_logs[key] = total_logs.get(key, 0.0) + v
+                    count_logs[key] = count_logs.get(key, 0) + 1
 
             n_steps += 1
             self.global_step += 1
 
-            # if self.log_step and step % self.log_step == 0:
-            #     msg = f"epoch={self.current_epoch + 1}/{self.num_epochs} step={step}"
-            #     for key, value in logs.items():
-            #         msg += f" {key}={float(value):.6f}"
-            #     print(msg)
-
         if n_steps == 0:
             return {}
 
-        return {key: value / n_steps for key, value in total_logs.items()}
+        return {key: total_logs[key] / count_logs[key] for key in count_logs}
 
     @torch.no_grad()
     def validate_one_epoch(self):
@@ -520,12 +557,13 @@ class Trainer:
             if self.max_step_val is not None and step >= self.max_step_val:
                 break
 
-            x = self._get_batch(batch)
+            x_in, x_tgt = self._split_batch(batch)
 
-            x = x.to(self.device, non_blocking=True)
+            x_in = x_in.to(self.device, non_blocking=True)
+            x_tgt = x_tgt.to(self.device, non_blocking=True)
 
             with autocast(enabled=self.use_amp):
-                pred, target, posterior = self._forward_autoencoder(x)
+                pred, target, posterior = self._forward_autoencoder(x_in, x_tgt)
 
                 _, logs = self.criterion.pretraining_loss(
                     pred=pred,
@@ -539,7 +577,8 @@ class Trainer:
 
             if step in random_plot_steps and self._is_non_zero_batch(target):
                 pred_plot, target_plot, _ = self._forward_autoencoder(
-                    x,
+                    x_in,
+                    x_tgt,
                     sample_posterior=False,
                 )
                 self._plot_recons_figures(
@@ -576,6 +615,7 @@ class Trainer:
             self.loss_history.append({"epoch": epoch + 1, **logs})
             self._save_loss_history()
             self._plot_losses_over_epochs()
+            self._maybe_save_best(val_logs)
 
             msg = f"epoch={epoch + 1}/{self.num_epochs}"
             for key, value in logs.items():

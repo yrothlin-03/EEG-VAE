@@ -2,7 +2,7 @@ from pathlib import Path
 import yaml
 
 from utils import pretraining_Trainer, pretraining_parser
-from eeg_preprocessing.loaders import build_loaders
+from eeg_preprocessing.loaders import get_pretraining_loader, EEGAugment
 from eeg_vae import EEGVAE, Discriminator
 
 
@@ -51,7 +51,12 @@ def update_config(base_config, parsed_args):
 
 
 
-def checkpoint_subdir_for_sequence_block(model_config: dict) -> str:
+_KNOWN_SUBDIRS = {"transformers", "mamba", "vq"}
+
+
+def model_subdir(model_config: dict) -> str:
+    if str(model_config.get("model_type", "kl")).lower() == "vq":
+        return "vq"
     sequence_block = str(model_config.get("sequence_block", "attention")).lower()
     if sequence_block == "attention":
         return "transformers"
@@ -63,14 +68,20 @@ def checkpoint_subdir_for_sequence_block(model_config: dict) -> str:
     )
 
 
-def add_checkpoint_type_dir(training_config: dict, model_config: dict) -> dict:
+def _append_subdir(path: str, subdir: str) -> str:
+    p = Path(path)
+    if p.name not in _KNOWN_SUBDIRS:
+        p = p / subdir
+    return str(p)
+
+
+def add_type_dirs(training_config: dict, model_config: dict) -> dict:
     training_config = dict(training_config)
-    checkpoint_root = Path(training_config["model_checkpoint_dir"])
-    checkpoint_type = checkpoint_subdir_for_sequence_block(model_config)
-    if checkpoint_root.name not in {"mamba", "transformers"}:
-        checkpoint_root = checkpoint_root / checkpoint_type
-    training_config["model_checkpoint_dir"] = str(checkpoint_root)
-    training_config["checkpoint_type"] = checkpoint_type
+    subdir = model_subdir(model_config)
+    for key in ("model_checkpoint_dir", "recon_figures_dir", "loss_dir"):
+        if key in training_config:
+            training_config[key] = _append_subdir(training_config[key], subdir)
+    training_config["checkpoint_type"] = subdir
     return training_config
 
 def build_model(model_config: dict, discriminator_config: dict):
@@ -109,10 +120,39 @@ def print_model_size(model, discriminator):
     print(f"  Total params        : {total_params:,}")
 
 
+def build_augmenter(augment_config: dict | None) -> EEGAugment | None:
+    """Build an :class:`EEGAugment` from the ``data.augment`` config block.
+
+    Returns ``None`` when augmentation is disabled, in which case the train
+    loader is built without any stochastic transform.
+    """
+    if not augment_config or not augment_config.get("enabled", True):
+        return None
+
+    kwargs = {}
+    for key in ("time_shift_ratio", "max_channel_dropout", "noise_std", "p"):
+        if key in augment_config:
+            kwargs[key] = augment_config[key]
+    if "amplitude_range" in augment_config:
+        kwargs["amplitude_range"] = tuple(augment_config["amplitude_range"])
+    if "time_mask_ratio" in augment_config:
+        kwargs["time_mask_ratio"] = tuple(augment_config["time_mask_ratio"])
+
+    return EEGAugment(**kwargs)
+
+
 def build_dataloaders(data_config: dict):
-    train_loader, val_loader, test_loader = build_loaders(
-        lmdb_path=Path(data_config["dataset_path"]),
-        split_ratio=tuple(data_config.get("split_ratio", [0.8, 0.1, 0.1])),
+    dataset_paths = data_config.get("dataset_paths", data_config.get("dataset_path"))
+    if dataset_paths is None:
+        raise KeyError("data config must define 'dataset_path' or 'dataset_paths'.")
+
+    augment_config = data_config.get("augment", {})
+    augment_train = bool(augment_config.get("enabled", True)) if augment_config else True
+    augmenter = build_augmenter(augment_config)
+
+    train_loader, val_loader = get_pretraining_loader(
+        lmdb_paths=dataset_paths,
+        split_ratio=tuple(data_config.get("split_ratio", [0.9, 0.1, 0.0])),
         batch_size=data_config.get("batch_size", 32),
         seed=data_config.get("seed", 42),
         num_workers=data_config.get("num_workers", 4),
@@ -120,12 +160,19 @@ def build_dataloaders(data_config: dict):
         persistent_workers=data_config.get("persistent_workers", False),
         channel_mode=data_config.get("channel_mode", "mapped"),
         return_ch_names=data_config.get("return_ch_names", False),
+        augmenter=augmenter,
+        augment_train=augment_train,
+        drop_last=data_config.get("drop_last", True),
+    )
+
+    print(
+        f"[LOADER] augmentation {'ON' if augment_train else 'OFF'} on train split"
     )
 
     return {
         "train": train_loader,
         "val": val_loader,
-        "test": test_loader,
+        "test": None,
     }
 
 
@@ -133,7 +180,7 @@ def main(config: dict):
     model_config = config.get("model", {})
     discriminator_config = config.get("discriminator", {})
     data_config = config.get("data", {})
-    training_config = add_checkpoint_type_dir(
+    training_config = add_type_dirs(
         config.get("training", {}),
         model_config,
     )

@@ -1,12 +1,24 @@
 data:
   dataset_path: /projects/EEG-foundation-model/RECH202/tests/TUEG/tueg.lmdb
-  batch_size: 64
+  batch_size: 16
   split_ratio: [0.9, 0.05, 0.0]
   num_workers: 4
   pin_memory: true
   persistent_workers: false
   seed: 42
   channel_mode: "mapped"
+  drop_last: true
+
+  # Stochastic EEG augmentations applied on the TRAIN split only (val never
+  # augmented). Set enabled: false to disable. Each transform fires with prob p.
+  augment:
+    enabled: true
+    p: 0.5
+    time_shift_ratio: 0.1          # max circular roll as a fraction of T
+    amplitude_range: [0.8, 1.2]    # multiplicative scaling U(lo, hi)
+    max_channel_dropout: 2         # number of channels zeroed (1..max)
+    noise_std: 0.01                # additive Gaussian noise std
+    time_mask_ratio: [0.05, 0.10]  # contiguous time block zeroed
 
 
 
@@ -24,7 +36,7 @@ training:
   discriminator_weight_decay: 0.0
   betas: [0.5, 0.9]
   grad_clip: 1.0
-  use_amp: false
+  use_amp: true
   log_step: 50
   max_step_train: 200
   max_step_val: 50
@@ -35,17 +47,25 @@ training:
 
   loss:
     rec_weight: 1.0
-    kl_weight: 0.00001
+    # KL mode  : regularisation toward unit Gaussian — keep very small (e.g. 0.00001)
+    # VQ mode  : acts as a scale multiplier on the commitment loss — set to 1.0
+    #            (commitment_cost in model.vq_commitment_cost already scales the MSE)
+    kl_weight: 1.0
     spectral_weight: 0.1
     adversarial_weight: 0.01
 
     rec_loss_type: "smooth_l1"
     spectral_loss_type: "l1"
+    # Multi-scale STFT: window sizes in samples (at FS=200 Hz)
+    # 64→320ms  128→640ms  256→1.28s  512→2.56s — covers all EEG bands
+    spectral_fft_sizes: [64, 128, 256, 512]
 
 
 
 
 model:
+  model_type: "vq"  # "kl" (default) | "vq"
+
   in_channels: 19
   out_channels: 19
 
@@ -55,7 +75,7 @@ model:
   z_channels: 16
   embed_dim: 16
 
-  ch: 64
+  ch: 128          # was 64 — doubles capacity at every encoder/decoder level
   ch_mult: [1, 2, 4]
 
   num_res_blocks: 2
@@ -67,9 +87,15 @@ model:
   resamp_with_conv: true
 
   tanh_out: false
-  use_checkpoint: false
+  use_checkpoint: true
   sequence_block: mamba  # attention, mamba
   criss_cross_patch_size: 200
+
+  # VQ-specific (only used when model_type: "vq")
+  vq_num_embeddings: 512    # codebook size per stage
+  vq_commitment_cost: 0.25  # β — weight of the commitment loss (encoder → codebook)
+  vq_decay: 0.99            # EMA decay rate for codebook updates
+  vq_n_quantizers: 8        # RVQ stages — effective vocab = 512^8; 1 = standard single-VQ
 
 
 discriminator:

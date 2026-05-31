@@ -154,16 +154,36 @@ def update_config(base_config, parsed_args):
 
 
 
-def checkpoint_subdir_for_sequence_block(model_config: dict) -> str:
+_KNOWN_SUBDIRS = {"transformers", "mamba", "vq", "jepa"}
+
+
+def checkpoint_subdir_for_eegvae(model_config: dict, training_config: dict) -> str:
+    """
+    Infer the downstream checkpoint sub-directory from the upstream checkpoint.
+    Priority: detect from checkpoint weights > fall back to sequence_block in config.
+    """
+    from utils.downstream_wrapper import _detect_eegvae_config
+
+    weights_path = training_config.get("model_weights")
+    if weights_path and Path(weights_path).exists():
+        try:
+            ckpt = torch.load(weights_path, map_location="cpu")
+            sd   = ckpt.get("model_state_dict", ckpt)
+            info = _detect_eegvae_config(sd)
+            if info["is_jepa"]:
+                return "jepa"
+            if info["model_type"] == "vq":
+                return "vq"
+            # KL — fall through to sequence_block
+        except Exception:
+            pass
+
     sequence_block = str(model_config.get("sequence_block", "attention")).lower()
     if sequence_block == "attention":
         return "transformers"
     if sequence_block == "mamba":
         return "mamba"
-    raise ValueError(
-        f"Unknown model.sequence_block={sequence_block!r}. "
-        "Expected 'attention' or 'mamba'."
-    )
+    return "transformers"
 
 
 def add_eegvae_checkpoint_type_dir(training_config: dict, model_name: str, model_config: dict) -> dict:
@@ -172,8 +192,8 @@ def add_eegvae_checkpoint_type_dir(training_config: dict, model_name: str, model
         return training_config
 
     checkpoint_root = Path(training_config.get("model_checkpoint_dir", "checkpoints/downstream"))
-    checkpoint_type = checkpoint_subdir_for_sequence_block(model_config)
-    if checkpoint_root.name not in {"mamba", "transformers"}:
+    checkpoint_type = checkpoint_subdir_for_eegvae(model_config, training_config)
+    if checkpoint_root.name not in _KNOWN_SUBDIRS:
         checkpoint_root = checkpoint_root / checkpoint_type
     training_config["model_checkpoint_dir"] = str(checkpoint_root)
     training_config["checkpoint_type"] = checkpoint_type

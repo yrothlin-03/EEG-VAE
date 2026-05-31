@@ -15,11 +15,24 @@ data:
 training:
   task: classification
   seed: 8
-  model_name: EEGPT # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
+  model_name: FEMBA  # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
   model_config_path: /home/infres/yrothlin-24/EEG-VAE/configs/model_configs.yaml
-  mode: linear_probing # linear_probing, channel_training, finetuning, full_training
-  model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/pretraining_final.pt
+  mode: linear_probing  # linear_probing, channel_training, finetuning, full_training
   strict_checkpoint_loading: false
+
+  # ── EEGVAE checkpoint selection ──────────────────────────────────────────────
+  # The wrapper auto-detects ch, model_type (kl/vq), and vq_n_quantizers from the
+  # checkpoint weights — no need to update the model section below when switching.
+  #
+  # Phase 1 mamba (KL-VAE):
+  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/mamba/pretraining_final.pt
+  #
+  # Phase 1 VQ-VAE (RVQ):
+  model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/pretraining_final.pt
+  #
+  # Phase 2 JEPA:
+  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/jepa/jepa_final.pt
+  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/mamba/pretraining_final.pt
 
   loss_dir: /home/infres/yrothlin-24/EEG-VAE/logs/downstream/losses
   model_checkpoint_dir: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/downstream
@@ -67,24 +80,16 @@ training:
   plateau_patience: 2
 
 
-head:
-  type: eegpt_probe # default, eegpt_probe, luna_probe
-  pooling: eegpt_flatten # eegpt_flatten, mean, max, attention
-  n_layer: 2
-  hidden_dim: 16
-  dropout: 0.50
-  norm: none
-  probe_max_norm: 1.0
-  classifier_max_norm: 0.25
-
-
-# head:
-#   type: eegvae_probe
-#   pooling: pyramid
-#   n_layer: 2
-#   hidden_dim: 128
-#   dropout: 0.2
-#   norm: layernorm
+# Heads are now auto-selected per backbone in models/model.py and
+# utils/downstream_wrapper.py. No `head:` section is needed anymore.
+#
+#   EEGVAE   → EEGVAEProbeHead   (models/eegvae_probe_head.py)
+#   EEGPT    → EEGPTLinearProbeHead (models/eegpt_probe_head.py)
+#   LUNA     → LunaProbeHead     (models/luna_probe_head.py)
+#   CBRAMOD  → CBRAMODProbeHead  (models/cbramod_probe_head.py)
+#   EEGMAMBA → EEGMambaProbeHead (models/eegmamba_probe_head.py)
+#   FEMBA    → FEMBAProbeHead    (models/femba_probe_head.py)
+#   REVE     → REVEProbeHead     (models/reve_probe_head.py)
 
 
 

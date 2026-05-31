@@ -3,6 +3,8 @@ import torch
 
 
 class DiagonalGaussianDistribution:
+    loss_name = "kl_loss"
+
     def __init__(self, parameters, deterministic=False):
         self.parameters = parameters
 

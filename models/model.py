@@ -5,10 +5,14 @@ import torch
 import torch.nn.functional as F
 
 from .backbone_wrapper import BackboneWrapper
+from .cbramod_probe_head import CBRAMODProbeHead
+from .eegmamba_probe_head import EEGMambaProbeHead
 from .eegpt_probe_head import Conv1dWithConstraint, EEGPTLinearProbeHead
+from .femba_probe_head import FEMBAProbeHead
 from .head_wrapper import HeadWrapper
-from .luna_probe_head import LunaProbeHead
 from .headV3 import HeadV3
+from .luna_probe_head import LunaProbeHead
+from .reve_probe_head import REVEProbeHead
 
 class Model(torch.nn.Module):
     def __init__(
@@ -69,49 +73,11 @@ class Model(torch.nn.Module):
                 if self.logger is not None:
                     self.logger.info("Backbone frozen for linear probing.")
 
-        hc = dict(head_config)
-        head_type = str(hc.get("type", "default")).lower()
-        if self.model_name == "LUNA" and head_type in {
-            "default",
-            "eegpt_probe",
-            "luna_probe",
-            "biofoundation_luna_probe",
-        }:
-            self.head = LunaProbeHead(
-                task=task,
-                n_classes=n_classes,
-                embed_dim=model_config.get("embed_dim", hc.get("embed_dim", 64)),
-                num_queries=model_config.get("num_queries", hc.get("num_queries", 4)),
-                num_heads=model_config.get("num_heads", hc.get("num_heads", 2)),
-                dropout=(
-                    hc.get("dropout", 0.15)
-                    if head_type in {"luna_probe", "biofoundation_luna_probe"}
-                    else 0.15
-                ),
-                output_dim=hc.get("output_dim", 1),
-            )
-        elif head_type in {"eegpt_probe", "bcic2a_eegpt_probe", "constrained_probe"}:
-            self.head = EEGPTLinearProbeHead(
-                task=task,
-                n_classes=n_classes,
-                hidden_dim=hc.get("hidden_dim", 16),
-                dropout=hc.get("dropout", 0.5),
-                n_layer=hc.get("n_layer", 2),
-                norm=hc.get("norm", "none"),
-                pooling=hc.get("pooling", "eegpt_flatten"),
-                output_dim=hc.get("output_dim", 1),
-                probe_max_norm=hc.get("probe_max_norm", 1.0),
-                classifier_max_norm=hc.get("classifier_max_norm", 0.25),
-            )
-        else:
-            self.head = HeadWrapper(
-                task=task,
-                n_classes=n_classes,
-                hidden_dim=hc.get("hidden_dim", 256),
-                dropout=hc.get("dropout", 0.5),
-                n_layer=hc.get("n_layer", 1),
-                norm=hc.get("norm", "layernorm"),
-            )
+        # Auto-select probe head from model_name so the downstream config does
+        # not need to carry a `head:` section. Each backbone has a dedicated
+        # head file tuned for its output feature shape.
+        hc = dict(head_config) if head_config else {}
+        self.head = self._build_head(task, n_classes, model_config, hc)
 
     #     self.head = HeadV3(
     #     task=task,
@@ -127,6 +93,58 @@ class Model(torch.nn.Module):
         self._log_every = 1000
         self._cpt = 0
 
+
+    def _build_head(self, task: str, n_classes: int, model_config: dict, hc: dict):
+        """Pick the right probe head for the backbone."""
+        name = self.model_name.upper()
+
+        if name == "LUNA":
+            return LunaProbeHead(
+                task=task,
+                n_classes=n_classes,
+                embed_dim=model_config.get("embed_dim", hc.get("embed_dim", 64)),
+                num_queries=model_config.get("num_queries", hc.get("num_queries", 4)),
+                num_heads=model_config.get("num_heads", hc.get("num_heads", 2)),
+                dropout=hc.get("dropout", 0.15),
+                output_dim=hc.get("output_dim", 1),
+            )
+
+        if name == "EEGPT":
+            return EEGPTLinearProbeHead(
+                task=task,
+                n_classes=n_classes,
+                hidden_dim=hc.get("hidden_dim", 16),
+                dropout=hc.get("dropout", 0.5),
+                output_dim=hc.get("output_dim", 1),
+                probe_max_norm=hc.get("probe_max_norm", 1.0),
+                classifier_max_norm=hc.get("classifier_max_norm", 0.25),
+            )
+
+        if name == "CBRAMOD":
+            return CBRAMODProbeHead(task=task, n_classes=n_classes,
+                                     output_dim=hc.get("output_dim", 1))
+
+        if name == "EEGMAMBA":
+            return EEGMambaProbeHead(task=task, n_classes=n_classes,
+                                      output_dim=hc.get("output_dim", 1))
+
+        if name == "FEMBA":
+            return FEMBAProbeHead(task=task, n_classes=n_classes,
+                                   output_dim=hc.get("output_dim", 1))
+
+        if name == "REVE":
+            return REVEProbeHead(task=task, n_classes=n_classes,
+                                  output_dim=hc.get("output_dim", 1))
+
+        # Fallback for any other backbone
+        return HeadWrapper(
+            task=task,
+            n_classes=n_classes,
+            hidden_dim=hc.get("hidden_dim", 256),
+            dropout=hc.get("dropout", 0.5),
+            n_layer=hc.get("n_layer", 1),
+            norm=hc.get("norm", "layernorm"),
+        )
 
     def print_model_info(self, checkpoint_path: Optional[Path] = None):
         backbone_params = sum(p.numel() for p in self.backbone.parameters())

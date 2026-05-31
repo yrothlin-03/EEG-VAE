@@ -22,8 +22,9 @@ def kl_loss(posterior):
 
 
 def spectral_loss(pred, target, loss_type="l1", eps=1e-8):
-    pred_fft = torch.fft.rfft(pred, dim=-1)
-    target_fft = torch.fft.rfft(target, dim=-1)
+    # cuFFT in fp16 only supports power-of-2 lengths — cast to fp32 for the FFT
+    pred_fft = torch.fft.rfft(pred.float(), dim=-1)
+    target_fft = torch.fft.rfft(target.float(), dim=-1)
 
     pred_mag = torch.sqrt(pred_fft.real.pow(2) + pred_fft.imag.pow(2) + eps)
     target_mag = torch.sqrt(target_fft.real.pow(2) + target_fft.imag.pow(2) + eps)
@@ -31,11 +32,48 @@ def spectral_loss(pred, target, loss_type="l1", eps=1e-8):
     return reconstruction_loss(pred_mag, target_mag, loss_type=loss_type)
 
 
+def multiscale_spectral_loss(pred, target, loss_type="l1", eps=1e-8,
+                              fft_sizes=(64, 128, 256, 512)):
+    """
+    Multi-scale STFT loss: computes spectral loss at multiple temporal resolutions.
+
+    Each fft_size n defines overlapping frames of length n (hop = n//2).
+    Small n → broad frequency bands (good for low-frequency EEG rhythms).
+    Large n → narrow frequency bands (good for fine spectral detail).
+    The total loss is the mean across all scales.
+    """
+    pred_f, target_f = pred.float(), target.float()
+    T = pred_f.shape[-1]
+    losses = []
+
+    for n in fft_sizes:
+        if T < n:
+            continue
+        hop = n // 2
+        # unfold last dim into overlapping frames: (..., n_frames, n)
+        p_frames = pred_f.unfold(-1, n, hop)
+        t_frames = target_f.unfold(-1, n, hop)
+        p_mag = torch.fft.rfft(p_frames, dim=-1).abs() + eps
+        t_mag = torch.fft.rfft(t_frames, dim=-1).abs() + eps
+        losses.append(reconstruction_loss(p_mag, t_mag, loss_type))
+
+    if not losses:
+        return torch.tensor(0.0, device=pred.device)
+
+    return torch.stack(losses).mean()
+
+
 def generator_hinge_loss(logits_fake):
-    return -logits_fake.mean()
+    # Clamp to keep the loss bounded under AMP — extreme logits can
+    # produce inf/NaN in fp16 even before the gradient scaler catches them.
+    return -logits_fake.clamp(min=-50.0, max=50.0).mean()
 
 
 def discriminator_hinge_loss(logits_real, logits_fake):
+    # Same clamp on both sides — the hinge loss is unbounded on the wrong side
+    # which is the main source of disc loss NaN under AMP.
+    logits_real = logits_real.clamp(min=-50.0, max=50.0)
+    logits_fake = logits_fake.clamp(min=-50.0, max=50.0)
     loss_real = F.relu(1.0 - logits_real).mean()
     loss_fake = F.relu(1.0 + logits_fake).mean()
     return 0.5 * (loss_real + loss_fake)
@@ -49,6 +87,7 @@ class PretrainingLoss(nn.Module):
         spectral_weight=0.1,
         rec_loss_type="smooth_l1",
         spectral_loss_type="l1",
+        spectral_fft_sizes=None,
     ):
         super().__init__()
         self.rec_weight = rec_weight
@@ -56,11 +95,19 @@ class PretrainingLoss(nn.Module):
         self.spectral_weight = spectral_weight
         self.rec_loss_type = rec_loss_type
         self.spectral_loss_type = spectral_loss_type
+        # None → single-scale FFT (legacy); list/tuple → multi-scale STFT
+        self.spectral_fft_sizes = tuple(spectral_fft_sizes) if spectral_fft_sizes else None
 
     def forward(self, pred, target, posterior):
         rec = reconstruction_loss(pred, target, self.rec_loss_type)
         kl = kl_loss(posterior)
-        spectral = spectral_loss(pred, target, self.spectral_loss_type)
+        if self.spectral_fft_sizes:
+            spectral = multiscale_spectral_loss(
+                pred, target, self.spectral_loss_type,
+                fft_sizes=self.spectral_fft_sizes,
+            )
+        else:
+            spectral = spectral_loss(pred, target, self.spectral_loss_type)
 
         total = (
             self.rec_weight * rec
@@ -68,10 +115,12 @@ class PretrainingLoss(nn.Module):
             + self.spectral_weight * spectral
         )
 
+        reg_key = getattr(posterior, "loss_name", "kl_loss")
+
         logs = {
             "loss": total.detach(),
             "rec_loss": rec.detach(),
-            "kl_loss": kl.detach(),
+            reg_key: kl.detach(),
             "spectral_loss": spectral.detach(),
         }
 
@@ -87,6 +136,7 @@ class VAEGANLoss(nn.Module):
         adversarial_weight=0.01,
         rec_loss_type="smooth_l1",
         spectral_loss_type="l1",
+        spectral_fft_sizes=None,
     ):
         super().__init__()
 
@@ -96,6 +146,7 @@ class VAEGANLoss(nn.Module):
             spectral_weight=spectral_weight,
             rec_loss_type=rec_loss_type,
             spectral_loss_type=spectral_loss_type,
+            spectral_fft_sizes=spectral_fft_sizes,
         )
 
         self.adversarial_weight = adversarial_weight
@@ -134,7 +185,30 @@ class VAEGANLoss(nn.Module):
 
 
 class JEPA_Loss(nn.Module):
-    pass
+    """
+    JEPA prediction loss: MSE (or smooth_l1) between predicted and target latent
+    representations in the VQ-VAE z_q space.
+
+    Both inputs are (B, D, n_targets) tensors.
+    """
+
+    def __init__(self, loss_type: str = "mse"):
+        super().__init__()
+        if loss_type not in {"mse", "smooth_l1"}:
+            raise ValueError(f"Unknown JEPA loss type: {loss_type!r}. Expected 'mse' or 'smooth_l1'.")
+        self.loss_type = loss_type
+
+    def forward(self, z_pred, z_target):
+        if self.loss_type == "mse":
+            loss = F.mse_loss(z_pred, z_target)
+        else:
+            loss = F.smooth_l1_loss(z_pred, z_target)
+
+        logs = {
+            "loss": loss.detach(),
+            "jepa_loss": loss.detach(),
+        }
+        return loss, logs
 
 
 

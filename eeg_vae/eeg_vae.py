@@ -1,7 +1,7 @@
-import torch
 import torch.nn as nn
 
 from .modules.autoencodeur_kl import AutoencoderKL
+from .modules.autoencoder_vq import AutoencoderVQ
 from .modules.channel_adaptor import ChannelAdaptor
 
 __all__ = ["EEGVAE"]
@@ -27,14 +27,16 @@ class EEGVAE(nn.Module):
         use_checkpoint=False,
         sequence_block="attention",
         criss_cross_patch_size=200,
+        model_type="kl",
+        vq_num_embeddings=512,
+        vq_commitment_cost=0.25,
+        vq_decay=0.99,
+        vq_n_quantizers=1,
     ):
         super().__init__()
 
         out_channels = in_channels if out_channels is None else out_channels
-
-        adapted_channels = (
-            in_channels if adapted_channels is None else adapted_channels
-        )
+        adapted_channels = in_channels if adapted_channels is None else adapted_channels
 
         self.channel_adaptor = ChannelAdaptor(
             in_channels=in_channels,
@@ -42,7 +44,7 @@ class EEGVAE(nn.Module):
             n_layers=adaptor_layers,
         )
 
-        self.autoencoder = AutoencoderKL(
+        shared_kwargs = dict(
             in_channels=adapted_channels,
             out_channels=out_channels,
             z_channels=z_channels,
@@ -59,6 +61,21 @@ class EEGVAE(nn.Module):
             sequence_block=sequence_block,
             criss_cross_patch_size=criss_cross_patch_size,
         )
+
+        if model_type == "kl":
+            self.autoencoder = AutoencoderKL(**shared_kwargs)
+        elif model_type == "vq":
+            self.autoencoder = AutoencoderVQ(
+                **shared_kwargs,
+                num_embeddings=vq_num_embeddings,
+                commitment_cost=vq_commitment_cost,
+                decay=vq_decay,
+                n_quantizers=vq_n_quantizers,
+            )
+        else:
+            raise ValueError(
+                f"Unknown model_type={model_type!r}. Expected 'kl' or 'vq'."
+            )
 
     def encode(self, x):
         x = self.channel_adaptor(x)
