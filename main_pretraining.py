@@ -51,28 +51,46 @@ def update_config(base_config, parsed_args):
 
 
 
-_KNOWN_SUBDIRS = {"transformers", "mamba", "vq"}
-
-
 def model_subdir(model_config: dict) -> str:
-    if str(model_config.get("model_type", "kl")).lower() == "vq":
-        return "vq"
+    """Relative checkpoint sub-directory encoding the model variant.
+
+    kl + attention → "kl/transformers"
+    kl + mamba     → "kl/mamba"
+    vq + attention → "vq/transformers/q{n}"
+    vq + mamba     → "vq/mamba/q{n}"
+
+    The trailing ``q{n}`` segment (RVQ stage count) keeps differently-sized VQ
+    models from overwriting each other's checkpoints.
+    """
     sequence_block = str(model_config.get("sequence_block", "attention")).lower()
     if sequence_block == "attention":
-        return "transformers"
-    if sequence_block == "mamba":
-        return "mamba"
+        block_dir = "transformers"
+    elif sequence_block == "mamba":
+        block_dir = "mamba"
+    else:
+        raise ValueError(
+            f"Unknown model.sequence_block={sequence_block!r}. "
+            "Expected 'attention' or 'mamba'."
+        )
+
+    model_type = str(model_config.get("model_type", "kl")).lower()
+    if model_type == "kl":
+        return str(Path("kl") / block_dir)
+    if model_type == "vq":
+        n_q = int(model_config.get("vq_n_quantizers", 1))
+        return str(Path("vq") / block_dir / f"q{n_q}")
     raise ValueError(
-        f"Unknown model.sequence_block={sequence_block!r}. "
-        "Expected 'attention' or 'mamba'."
+        f"Unknown model.model_type={model_type!r}. Expected 'kl' or 'vq'."
     )
 
 
 def _append_subdir(path: str, subdir: str) -> str:
+    """Append ``subdir`` to ``path`` unless ``path`` already ends with it."""
     p = Path(path)
-    if p.name not in _KNOWN_SUBDIRS:
-        p = p / subdir
-    return str(p)
+    subdir_parts = Path(subdir).parts
+    if p.parts[-len(subdir_parts):] == subdir_parts:
+        return str(p)
+    return str(p / subdir)
 
 
 def add_type_dirs(training_config: dict, model_config: dict) -> dict:
@@ -83,6 +101,39 @@ def add_type_dirs(training_config: dict, model_config: dict) -> dict:
             training_config[key] = _append_subdir(training_config[key], subdir)
     training_config["checkpoint_type"] = subdir
     return training_config
+
+# Default regularisation weight per latent type, used when loss.kl_weight is
+# left to "auto". KL needs a tiny weight so the divergence toward N(0, I) does
+# not crush reconstruction; VQ uses it as a unit scale on the commitment loss
+# (already scaled by model.vq_commitment_cost inside the quantizer).
+KL_WEIGHT_DEFAULTS = {"kl": 1e-5, "vq": 1.0}
+
+
+def resolve_kl_weight(training_config: dict, model_config: dict) -> dict:
+    """Auto-select loss.kl_weight from model_type when it is 'auto'/null/missing.
+
+    An explicit numeric kl_weight (from the yaml or --kl_weight) is always
+    respected and never overridden.
+    """
+    loss_config = training_config.get("loss")
+    if loss_config is None:
+        return training_config
+
+    weight = loss_config.get("kl_weight", "auto")
+    if isinstance(weight, (int, float)) and not isinstance(weight, bool):
+        return training_config  # explicit numeric value → respect it
+
+    model_type = str(model_config.get("model_type", "kl")).lower()
+    if model_type not in KL_WEIGHT_DEFAULTS:
+        raise ValueError(
+            f"Cannot auto-resolve kl_weight for unknown model_type={model_type!r}."
+        )
+
+    resolved = KL_WEIGHT_DEFAULTS[model_type]
+    loss_config["kl_weight"] = resolved
+    print(f"[LOSS] kl_weight=auto → {resolved:g} (model_type={model_type})")
+    return training_config
+
 
 def build_model(model_config: dict, discriminator_config: dict):
     output_channels = model_config.get(
@@ -184,6 +235,7 @@ def main(config: dict):
         config.get("training", {}),
         model_config,
     )
+    training_config = resolve_kl_weight(training_config, model_config)
 
     model, discriminator = build_model(
         model_config=model_config,

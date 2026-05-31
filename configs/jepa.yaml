@@ -10,7 +10,9 @@ data:
 
 
 phase1:
-  checkpoint: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/pretraining_final.pt
+  # New checkpoint layout (Phase 1): vq/<block>/q<n>/pretraining_final.pt
+  # Override per-run with --vae_checkpoint to JEPA-train a different VQ-VAE.
+  checkpoint: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/mamba/q8/pretraining_final.pt
 
 
 training:

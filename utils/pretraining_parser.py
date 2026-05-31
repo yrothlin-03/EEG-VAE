@@ -76,6 +76,12 @@ def get_parser():
     parser.add_argument("--sequence_block", type=str, choices=("attention", "mamba"), default=None)
     parser.add_argument("--criss_cross_patch_size", type=int, default=None)
 
+    parser.add_argument("--model_type", type=str, choices=("kl", "vq"), default=None)
+    parser.add_argument("--vq_num_embeddings", type=int, default=None)
+    parser.add_argument("--vq_commitment_cost", type=float, default=None)
+    parser.add_argument("--vq_decay", type=float, default=None)
+    parser.add_argument("--vq_n_quantizers", type=int, default=None)
+
     parser.add_argument("--disc_in_channels", type=int, default=None)
     parser.add_argument("--ndf", type=int, default=None)
     parser.add_argument("--n_layers", type=int, default=None)
@@ -159,6 +165,11 @@ def build_config_from_args(args):
         "use_checkpoint",
         "sequence_block",
         "criss_cross_patch_size",
+        "model_type",
+        "vq_num_embeddings",
+        "vq_commitment_cost",
+        "vq_decay",
+        "vq_n_quantizers",
     ]
 
     discriminator_mapping = {

@@ -24,7 +24,7 @@ micromamba activate rech202
 
 cd /home/infres/yrothlin-24/EEG-VAE
 
-datasets=(BCI2A PHYSIONETMI FACED SEEDV)
+datasets=(BCI2A PHYSIONETMI FACED TUAB SLEEPEDFX SEEDV)
 seeds=(8 42 100 123 2024)
 model=EEGMAMBA
 
@@ -40,6 +40,8 @@ for dataset in "${datasets[@]}"; do
             --seed "$seed" \
             --num_epochs 50 \
             --model_name "$model" \
-            --mode linear_probing 
+            --model_weights "$weights" \
+            --sequence_block "$seq_block" \
+            --mode channel_training
     done
 done

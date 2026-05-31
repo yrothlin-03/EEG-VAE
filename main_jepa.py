@@ -43,6 +43,48 @@ def update_config(base_config, parsed_args):
     return base_config
 
 
+def jepa_subdir(sequence_block: str, n_quantizers: int) -> str:
+    """Relative checkpoint sub-directory for a JEPA run.
+
+    JEPA always runs on a VQ-VAE encoder, so the ``vq/`` prefix is redundant:
+
+    attention → "transformers/q{n}"
+    mamba     → "mamba/q{n}"
+
+    The trailing ``q{n}`` segment keeps JEPA runs built on differently-sized
+    VQ-VAEs from overwriting each other's checkpoints.
+    """
+    block = str(sequence_block).lower()
+    if block == "attention":
+        block_dir = "transformers"
+    elif block == "mamba":
+        block_dir = "mamba"
+    else:
+        raise ValueError(
+            f"Unknown model.sequence_block={block!r}. Expected 'attention' or 'mamba'."
+        )
+    return str(Path(block_dir) / f"q{n_quantizers}")
+
+
+def _append_subdir(path: str, subdir: str) -> str:
+    """Append ``subdir`` to ``path`` unless ``path`` already ends with it."""
+    p = Path(path)
+    subdir_parts = Path(subdir).parts
+    if p.parts[-len(subdir_parts):] == subdir_parts:
+        return str(p)
+    return str(p / subdir)
+
+
+def add_type_dirs(training_config: dict, model_config: dict, n_quantizers: int) -> dict:
+    training_config = dict(training_config)
+    subdir = jepa_subdir(model_config.get("sequence_block", "attention"), n_quantizers)
+    for key in ("model_checkpoint_dir", "loss_dir"):
+        if key in training_config:
+            training_config[key] = _append_subdir(training_config[key], subdir)
+    training_config["checkpoint_type"] = subdir
+    return training_config
+
+
 def count_parameters(module):
     return sum(p.numel() for p in module.parameters())
 
@@ -95,6 +137,12 @@ def main(config):
     )
 
     print_model_size(model)
+
+    # Route checkpoints/logs into a variant-specific sub-directory so JEPA runs
+    # built on different VQ-VAEs (sequence block, RVQ stage count) don't collide.
+    n_quantizers = getattr(model.context_encoder.quantize, "n_quantizers", 1)
+    training_config = add_type_dirs(training_config, model_config, n_quantizers)
+
     print(f"[JEPA] Phase 1 checkpoint : {vae_checkpoint_path}")
     print(f"[JEPA] Checkpoint dir     : {training_config['model_checkpoint_dir']}")
 

@@ -47,10 +47,12 @@ training:
 
   loss:
     rec_weight: 1.0
-    # KL mode  : regularisation toward unit Gaussian — keep very small (e.g. 0.00001)
-    # VQ mode  : acts as a scale multiplier on the commitment loss — set to 1.0
-    #            (commitment_cost in model.vq_commitment_cost already scales the MSE)
-    kl_weight: 1.0
+    # "auto" picks the weight from model.model_type (resolve_kl_weight):
+    #   KL mode → 1e-5  : regularisation toward unit Gaussian — must stay tiny
+    #   VQ mode → 1.0   : unit scale on the commitment loss
+    #                     (model.vq_commitment_cost already scales the MSE)
+    # Set an explicit number here (or pass --kl_weight) to override the auto value.
+    kl_weight: auto
     spectral_weight: 0.1
     adversarial_weight: 0.01
 

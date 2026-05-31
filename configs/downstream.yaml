@@ -1,4 +1,4 @@
-dataset_name: BCI2A  # PHYSIONETMI, SLEEPEDFX, SEEDV, BCI2A, TUAB, FACED, SIENA, SHUMI, KARAONE, BCI2020, CHISCO
+dataset_name: SLEEPEDFX  # PHYSIONETMI, SLEEPEDFX, SEEDV, BCI2A, TUAB, FACED, SIENA, SHUMI, KARAONE, BCI2020, CHISCO
 
 
 data:
@@ -8,14 +8,14 @@ data:
   pin_memory: true
   persistent_workers: false
   seed: 100
-  channel_mode: "raw"
+  channel_mode: "mapped"
   return_ch_names: false
 
 
 training:
   task: classification
   seed: 8
-  model_name: FEMBA  # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
+  model_name: CBRAMOD  # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
   model_config_path: /home/infres/yrothlin-24/EEG-VAE/configs/model_configs.yaml
   mode: linear_probing  # linear_probing, channel_training, finetuning, full_training
   strict_checkpoint_loading: false
@@ -166,9 +166,9 @@ BCI2A:
 
 
 TUAB:
-  dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/TUAB/tuab.lmdb
+  dataset_path: /projects/EEG-foundation-model/RECH202/tests/TUAB/tuab.lmdb
   n_classes: 2
-  patch_size: 256
+  patch_size: 200
 
 FACED:
   # dataset_path: /projects/EEG-foundation-model/RECH202/data_preprocessed/FACED/faced.lmdb

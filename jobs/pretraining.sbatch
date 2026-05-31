@@ -6,7 +6,7 @@
 #SBATCH --mem=48G
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --job-name=pretraining_eegvae_rvq
+#SBATCH --job-name=pretraining_eegvae_kl_mamba
 #SBATCH --output=logs/pretraining/%x_%j.out
 #SBATCH --error=logs/pretraining/%x_%j.err
 
@@ -25,7 +25,8 @@ cd /home/infres/yrothlin-24/EEG-VAE
 python main_pretraining.py \
     --use_parsing \
     --num_epochs 20 \
-    --max_step_train 3000 \
+    --max_step_train 5000 \
     --max_step_val 500 \
-    --sequence_block mamba 
+    --model_type kl \
+    --sequence_block mamba
     
