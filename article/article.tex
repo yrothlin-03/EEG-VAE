@@ -5,6 +5,7 @@
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{booktabs}
+\usepackage{float}      % [H] placement — forces figure exactly at definition site
 
 % hyperref makes hyperlinks in the resulting PDF.
 % If your build breaks, comment out hyperref below and replace
@@ -33,12 +34,12 @@
 
 % The \icmltitle you define below is probably too long as a header.
 % Therefore, a short form for the running title is supplied here:
-\icmltitlerunning{EEG-VAE: Short Running Title}
+\icmltitlerunning{EEG-RQVAE: Short Running Title}
 
 \begin{document}
 \onecolumn
 
-\icmltitle{EEG-VAE: Full Paper Title}
+\icmltitle{EEG-RQVAE: Full Paper Title}
 
 % It is OKAY to include author information, even for blind submissions:
 % the style file will automatically remove it unless you've provided
@@ -51,7 +52,7 @@
 \icmlaffiliation{inst1}{Département, Université, Pays}
 \icmlcorrespondingauthor{Prénom Nom}{email@exemple.com}
 
-\icmlkeywords{EEG, VAE, generative model, BCI}
+\icmlkeywords{EEG, VAE, residual vector quantization, JEPA, Mamba, BCI, foundation model}
 
 \vskip 0.3in
 
@@ -61,11 +62,16 @@
 % \printAffiliationsAndNotice{\icmlEqualContribution}  % for equal contribution
 
 \begin{abstract}
-Ton résumé ici (150–200 mots).
+% ~150 mots. Schéma : (1) problème — EEG foundation models reconstituent en espace signal,
+% ce qui est sous-optimal pour l'apprentissage sémantique ; (2) gap — aucun modèle ne combine
+% tokenisation RVQ et objectif JEPA latent ; (3) méthode — EEG-RQVAE, pipeline 2 étapes,
+% backbone BiMamba ; (4) résultat clé chiffré sur linear probing.
 \end{abstract}
 
 
+% =============================================================================
 \section{Introduction}
+% =============================================================================
 
 Electroencephalography (EEG) measures the brain's electrical activity through electrodes placed on the scalp, capturing oscillatory dynamics across a broad frequency spectrum with millisecond temporal resolution \citep{article, MULLERPUTZ2020249}.
 These properties make EEG a central modality in brain-computer interfaces (BCIs), with applications spanning motor imagery \citep{939829}, imagined speech decoding \citep{article1}, cognitive monitoring, and clinical diagnosis.
@@ -77,14 +83,16 @@ The success of large pretrained models in natural language processing and comput
 Several such models have been proposed recently, leveraging the Transformer architecture~\citep{NIPS2017_3f5ee243} with masked reconstruction as the pretraining objective: EEGPT~\citep{NEURIPS2024_4540d267}, CBraMod~\citep{wang2025cbramod}, REVE~\citep{ouahidi2026reve}, and CSBrain~\citep{zhou2026csbrain}.
 In parallel, state space models (SSMs) such as Mamba~\citep{gu2024mamba} and Mamba-2~\citep{pmlr-v235-dao24a} have emerged as efficient alternatives to attention-based architectures, with linear complexity in sequence length---a desirable property for long EEG recordings.
 EEGMamba~\citep{WANG2025107816}, FEMBA~\citep{DBLP:journals/corr/abs-2502-06438}, LUNA~\citep{doner2025luna}, and LuMamba~\citep{unknown2} explore this direction, but their pretraining objectives remain anchored to pixel-space reconstruction in the input signal domain.
+Concurrently, BAM-U-Net~\citep{bamunnet2026} combines BiMamba-2 blocks with an adversarial denoising objective and achieves strong linear probing performance; however, it operates entirely in raw signal space and does not produce discrete, reusable token representations, nor does it incorporate any latent-space self-supervised objective.
 
 We argue that reconstruction in the raw signal space is a suboptimal pretraining objective for learning \emph{semantic} EEG representations.
 First, raw EEG contains substantial low-level noise and physiological artifacts that do not carry task-relevant information; a model trained to reconstruct them may allocate significant capacity to irrelevant details.
 Second, patch-based masked reconstruction encourages local pattern matching rather than higher-level semantic structure.
 VAE-based approaches for EEG~\citep{ZHAO2024120946, s25103178} alleviate some of these issues by learning a compressed latent space, but they have not been scaled to large corpora or combined with structured self-supervised pretraining.
-In other domains---audio compression with EnCodec~\citep{défossez2022highfidelityneuralaudio}, image tokenization with RQ-VAE~\citep{9879532}, and medical imaging with MedVAE~\citep{varma2025medvaeefficientautomatedinterpretation}---residual vector quantization has demonstrated that discrete, hierarchical codebooks provide compact yet expressive representations that benefit downstream modeling.
+In other domains---audio compression with EnCodec~\citep{défossez2022highfidelityneuralaudio} and image tokenization with RQ-VAE~\citep{9879532}---residual vector quantization has demonstrated that discrete, hierarchical codebooks provide compact yet expressive representations that benefit downstream modeling.
 
 In this work, we introduce \textbf{EEG-RQVAE}, a foundation model for EEG based on a Residual Quantized Variational Autoencoder trained with a two-stage pretraining pipeline designed to learn increasingly semantic representations.
+Inspired by MedVAE~\citep{varma2025medvaeefficientautomatedinterpretation}, which showed that decoupling reconstruction quality from semantic structure through a dedicated second training stage substantially improves the informativeness of the latent space in medical imaging, we adopt a similar principle for EEG.
 In the first stage, the model is trained to reconstruct a clean, augmented view of the EEG from a corrupted input, leveraging denoising as an implicit regularizer while a patch discriminator enforces signal fidelity.
 In the second stage, we adapt the encoder using a Joint-Embedding Predictive Architecture~\citep{assran2023selfsupervisedlearningimagesjointembedding} in latent space, predicting the representations of masked spatial and temporal regions from visible context---encouraging the model to capture the structured, predictive dependencies that underlie brain dynamics.
 Throughout both stages, we use bidirectional Mamba blocks as the backbone, enabling efficient modeling of long EEG sequences while respecting the temporal symmetry of brain signals.
@@ -98,47 +106,448 @@ Our main contributions are:
 \end{itemize}
 
 
+% =============================================================================
+\section{Related Work}
+% =============================================================================
+
+\paragraph{EEG foundation models.}
+Building universal EEG representations has been approached through two main architectural families.
+Transformer-based models~\citep{NIPS2017_3f5ee243} have dominated early work: EEGPT~\citep{NEURIPS2024_4540d267} combines masked reconstruction with a spatio-temporal representation alignment objective, while CBraMod~\citep{wang2025cbramod} introduces a criss-cross attention mechanism to jointly model spatial and temporal dependencies across channels.
+REVE~\citep{ouahidi2026reve} scales masked pretraining to 25,000 subjects to learn topology-agnostic representations, and CSBrain~\citep{zhou2026csbrain} adopts a cross-scale architecture to capture oscillations at multiple temporal resolutions.
+Despite strong performance under fine-tuning, Transformer-based models suffer from quadratic complexity in sequence length, which limits their applicability to long-duration clinical recordings.
+State space models have emerged as a linear-time alternative: EEGMamba~\citep{WANG2025107816}, FEMBA~\citep{DBLP:journals/corr/abs-2502-06438}, LUNA~\citep{doner2025luna}, and LuMamba~\citep{unknown2} all leverage Mamba-based backbones with masked reconstruction objectives.
+BAM-U-Net~\citep{bamunnet2026} further integrates an adversarial patch discriminator into the denoising objective, yielding substantially stronger linear probing performance.
+However, all of these models share a common limitation: their pretraining objective operates in raw signal space, encouraging the model to faithfully reproduce waveform details that may be uninformative for downstream BCI tasks.
+Furthermore, none of them produce \emph{discrete} token representations, which precludes their direct use in generative autoregressive pipelines.
+
+\paragraph{Neural signal tokenization.}
+Discrete representation learning has a long history in audio and image modeling.
+Residual Vector Quantization (RVQ) refines standard vector quantization by sequentially quantizing the residual error across multiple codebooks, achieving a favorable rate--distortion trade-off without increasing individual codebook size.
+EnCodec~\citep{défossez2022highfidelityneuralaudio} demonstrated that RVQ combined with adversarial training yields state-of-the-art audio compression, while RQ-VAE~\citep{9879532} showed that residual quantization of image features enables high-fidelity autoregressive image generation.
+In the EEG domain, LaBraM~\citep{jiang2024large} introduced a neural tokenizer based on vector-quantized spectral prediction, producing neural codes that serve as pretraining targets for a Transformer encoder.
+EEG-RQVAE extends this direction by combining RVQ with a two-stage pretraining pipeline applied directly to raw waveforms, without relying on pre-extracted spectral features.
+
+\paragraph{Latent self-supervised learning and semantic representations.}
+A growing body of work argues that self-supervised objectives formulated in latent space, rather than in signal space, yield more semantic representations.
+The Joint-Embedding Predictive Architecture (JEPA)~\citep{assran2023selfsupervisedlearningimagesjointembedding} formalizes this intuition: instead of reconstructing masked patches from pixels, a predictor network learns to anticipate the latent representations of masked regions from visible context, preventing the model from expending capacity on low-level signal details.
+In the medical imaging domain, MedVAE~\citep{varma2025medvaeefficientautomatedinterpretation} demonstrated that decoupling reconstruction quality from semantic structure through a dedicated second training stage---where the latent space is further refined using a vision-language model as a semantic anchor---significantly improves the utility of frozen representations for downstream classification.
+VAE-based approaches for EEG~\citep{ZHAO2024120946, s25103178} have confirmed that a compressed latent space captures clinically relevant features more compactly than raw signals, but these models have not been scaled to large multi-task corpora and their latent spaces are not shaped by any semantic self-supervised objective.
+EEG-RQVAE bridges these lines of work by (i)~learning a discrete, hierarchically quantized latent space via RVQ, (ii)~enforcing signal-level fidelity through adversarial denoising in Stage~1, and (iii)~refining the encoder with a JEPA-style objective in Stage~2 that pushes representations toward semantic predictability without any reconstruction pressure.
+
+
+% =============================================================================
 \section{Method}
+% =============================================================================
 
-\subsection{Background}
-- introduction to ssm and mamba / mamba 2, the relevance of BiMamba blocks.
-- VQ-VAE and RVQ
-- Jepa
+EEG-RQVAE is a foundation model for multi-channel EEG that learns discrete, hierarchically quantized representations through a two-stage pretraining pipeline.
+Figure~\ref{fig:model} gives an overview of the full system.
+In Stage~1, an encoder--RVQ--decoder architecture is trained end-to-end to reconstruct a clean EEG window from a corrupted input, with an adversarial patch discriminator enforcing signal fidelity beyond what a pointwise loss can capture.
+In Stage~2, the decoder is frozen and the encoder is further adapted with a JEPA-style objective that operates entirely in discrete latent space, steering representations toward semantic predictability without any signal-level reconstruction pressure.
+Both stages share the same bidirectional Mamba-2 backbone.
+We first introduce the building blocks on which EEG-RQVAE relies, then describe the architecture and each training stage in detail.
 
-\subsection{Training pipeline overview}
-- 2 stages : reconstruction and jepa (explain why)
+\subsection{Preliminaries}
 
-\subsection{Architecture}
-- Details over the architectural choices 
+\paragraph{Selective state space models and bidirectional Mamba.}
+State space models (SSMs) define a linear recurrence over a continuous input signal $u(t)$:
+\begin{equation}
+  h'(t) = \mathbf{A}\,h(t) + \mathbf{B}\,u(t), \qquad y(t) = \mathbf{C}\,h(t),
+\end{equation}
+where $h(t) \in \mathbb{R}^N$ is the latent state and $\mathbf{A}, \mathbf{B}, \mathbf{C}$ are learned parameters.
+After zero-order-hold discretization with step size $\Delta$, the recurrence becomes:
+\begin{equation}
+  h_t = \bar{\mathbf{A}}\,h_{t-1} + \bar{\mathbf{B}}_t\,x_t, \qquad y_t = \mathbf{C}_t\,h_t,
+  \label{eq:ssm}
+\end{equation}
+with $\bar{\mathbf{A}} = e^{\Delta \mathbf{A}}$ and $\bar{\mathbf{B}}_t = \Delta\,\mathbf{B}_t$.
+Mamba~\citep{gu2024mamba} and its successor Mamba-2~\citep{pmlr-v235-dao24a} make $\mathbf{B}_t$, $\mathbf{C}_t$, and $\Delta$ input-dependent, yielding a \emph{selective} SSM that can focus on or filter out individual time steps.
+Crucially, the recurrence in Eq.~\eqref{eq:ssm} is computed with a hardware-efficient parallel scan, achieving \emph{linear} complexity $\mathcal{O}(T)$ in the sequence length $T$, in contrast to the $\mathcal{O}(T^2)$ cost of self-attention.
 
-\subsection{Pretraining : Stage 1}
-- explain the goal of this stage and the different steps / losses involved.
-- developp on the different augmentations and corruptions used and their relevance for EEG data. (the denoising and regularization effects)
-\subsection{Pretraining : Stage 2}
-- explain the goal of this stage and the different steps / losses involved.
+Because EEG windows are processed offline rather than as causal streams, future context is as informative as past context.
+We therefore adopt a bidirectional variant~\citep{bamunnet2026} that processes the sequence in both directions and fuses the two outputs by summation.
+Denoting by $\mathcal{M}(\cdot)$ a single pre-normalized residual Mamba-2 block,
+\begin{equation}
+  \mathcal{M}(X) = \operatorname{Mamba2}(\operatorname{LN}(X)) + X,
+\end{equation}
+the BiMamba-2 block with sum fusion reads:
+\begin{equation}
+  \operatorname{BiMamba}(X) = \mathcal{M}_{\mathrm{fwd}}(X) + \operatorname{rev}\!\left(\mathcal{M}_{\mathrm{bwd}}\!\left(\operatorname{rev}(X)\right)\right),
+  \label{eq:bimamba}
+\end{equation}
+where $\operatorname{rev}(\cdot)$ reverses the sequence along the time axis.
+Each representation thus attends to both past and future temporal context while retaining linear-time inference.
+
+\paragraph{Residual Vector Quantization.}
+Vector Quantization (VQ) maps a continuous vector $z \in \mathbb{R}^d$ to its nearest entry in a finite codebook $\mathcal{E} = \{e_k\}_{k=1}^{K} \subset \mathbb{R}^d$:
+\begin{equation}
+  q = \operatorname*{arg\,min}_{k}\,\|z - e_k\|_2.
+\end{equation}
+Standard VQ is limited by the trade-off between codebook size $K$ and representation precision.
+Residual Vector Quantization (RVQ)~\citep{défossez2022highfidelityneuralaudio, 9879532} overcomes this by applying $N$ quantization steps in cascade: the first codebook $\mathcal{E}^{(1)}$ quantizes the encoder output $z^{(0)} = z_e$, and each subsequent codebook $\mathcal{E}^{(n)}$ quantizes the residual left by the previous step:
+\begin{equation}
+  q^{(n)} = \operatorname*{arg\,min}_{k}\,\left\|z^{(n-1)} - e^{(n)}_k\right\|_2, \qquad
+  z^{(n)} = z^{(n-1)} - e^{(n)}_{q^{(n)}},
+\end{equation}
+yielding the quantized representation $z_q = \sum_{n=1}^{N} e^{(n)}_{q^{(n)}}$.
+Gradients are propagated through the quantization bottleneck via the straight-through estimator~\citep{défossez2022highfidelityneuralaudio}, and the encoder is regularized by a commitment loss:
+\begin{equation}
+  \mathcal{L}_{\mathrm{commit}} = \left\|z_e - \operatorname{sg}[z_q]\right\|_2^2,
+  \label{eq:commit}
+\end{equation}
+where $\operatorname{sg}[\cdot]$ denotes the stop-gradient operator.
+RVQ thus produces a sequence of $N$ discrete indices per time step, forming a compact hierarchical token representation.
+
+\paragraph{Joint-Embedding Predictive Architecture.}
+JEPA~\citep{assran2023selfsupervisedlearningimagesjointembedding} is a self-supervised learning framework that avoids signal-level reconstruction entirely.
+Given an input $x$, two views are created: a context $x_c$ (visible patches) and a target $x_t$ (masked patches).
+The context is encoded by an online encoder $f_\theta$, and a lightweight predictor $g_\phi$ maps the context representation to a prediction of the target representation:
+\begin{equation}
+  \hat{s}_t = g_\phi\!\left(f_\theta(x_c),\, m\right),
+\end{equation}
+where $m$ encodes the spatial position of the masked region.
+The target representation $s_t = f_{\bar{\theta}}(x_t)$ is produced by an exponential moving average (EMA) copy of the encoder with parameters $\bar{\theta} \leftarrow \tau\,\bar{\theta} + (1-\tau)\,\theta$, which provides a stable prediction target without requiring negative samples.
+The training objective minimizes the $\ell_2$ distance between prediction and target in representation space:
+\begin{equation}
+  \mathcal{L}_{\mathrm{JEPA}} = \left\|\hat{s}_t - \operatorname{sg}[s_t]\right\|_2^2.
+  \label{eq:jepa}
+\end{equation}
+Because the loss is computed entirely in latent space, the model is never penalized for ignoring high-frequency signal details irrelevant to the prediction task, which biases learning toward structured, semantic features.
 
 
+\subsection{EEG-RQVAE Architecture}
 
+Figure~\ref{fig:model} gives an overview of EEG-RQVAE.
+A raw EEG window $x \in \mathbb{R}^{C \times T}$ ($C = 19$ channels, $T$ time samples) is processed by four successive components: a channel adaptor, a spatio-temporal mixing block, a hierarchical convolutional encoder, and a residual vector quantizer.
+A symmetric decoder is used during Stage~1 only and is frozen for Stage~2.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{model_vq_figure/model_vq_figure}
+  \caption{
+    Overview of the EEG-RQVAE architecture.
+    A raw EEG signal is first projected by a channel adaptor, then processed
+    by a spatio-temporal mixing block (CrissCross attention or Mamba).
+    A hierarchical encoder maps the sequence to a compact latent code $z_e$,
+    which is discretized by the residual vector quantizer (RVQ, $Q$ stages)
+    into $z_q$.
+    A symmetric decoder reconstructs the signal from $z_q$ (Stage~1 only).
+    Losses are colour-coded: reconstruction $\mathcal{L}_{\mathrm{rec}}$,
+    multi-scale spectral $\mathcal{L}_{\mathrm{spec}}$,
+    commitment $\mathcal{L}_{\mathrm{commit}}$, and adversarial $\mathcal{L}_{\mathrm{adv}}$.
+  }
+  \label{fig:model}
+\end{figure}
+
+\paragraph{Channel adaptor.}
+EEG recordings vary in electrode count and montage across devices and datasets.
+To decouple the model's internal width from the raw channel count, we first pass the signal through a lightweight channel adaptor consisting of $L=2$ point-wise convolutions (\texttt{Conv1d}, kernel size 1) interleaved with batch normalization and ReLU activations:
+\begin{equation}
+  x' = \phi_{\mathrm{adapt}}(x) \in \mathbb{R}^{C' \times T}, \quad C' = 64.
+\end{equation}
+Because all convolutions have kernel size 1, the adaptor mixes channels but does not modify the temporal dimension.
+
+\paragraph{Spatio-temporal mixing block.}
+Before entering the hierarchical encoder, $x'$ passes through a block that captures global spatio-temporal structure at the level of EEG patches.
+In the attention variant, this is a \emph{CrissCross EEG Attention} module that operates on non-overlapping temporal patches of length $P = 200$ samples (one second at 200 Hz).
+Each patch is projected to a token of dimension $d_{\mathrm{attn}}$ and augmented with its short-time Fourier transform magnitude, providing a spectral view alongside the waveform.
+A positional encoding defined as a depthwise convolution over the $(C, N)$ channel--patch grid is added before the tokens are split into two streams of equal width: a spatial stream that applies multi-head attention across the $C$ channels at each patch position, and a temporal stream that applies multi-head attention across the $N$ patches at each channel.
+The two streams are concatenated, processed by a feed-forward layer, and projected back to a per-sample residual that is added to $x'$ through a learnable gate.
+In the Mamba variant, the CrissCross module is replaced by a single MambaEEGBlock applied to $x'$, which attends to all time steps in a single pass.
+
+\paragraph{Hierarchical encoder.}
+The output of the mixing block is projected to $d_0 = 128$ feature maps by a \texttt{Conv1d} with kernel size 3, then processed by three resolution levels.
+At each level $\ell \in \{0, 1, 2\}$, two residual blocks expand the channel width:
+\begin{equation}
+  d_\ell = 128 \times [1,\, 2,\, 4]_\ell = \{128,\, 256,\, 512\},
+\end{equation}
+and a strided convolution (stride 2) halves the temporal resolution at the first two levels.
+The signal is therefore downsampled by a factor of 4 along the time axis ($T \to T/4$).
+A bottleneck follows the last resolution level: two residual blocks sandwich a sequence block (Mamba or attention), providing global temporal context at the coarsest resolution.
+A final \texttt{Conv1d} projects to $z_e \in \mathbb{R}^{D \times (T/4)}$ with $D = 16$ via a \texttt{quant\_conv} layer (kernel size 1).
+
+Each residual block applies group normalization, a Swish activation, and two \texttt{Conv1d} layers (kernel size 3, padding 1) with a skip connection.
+
+\paragraph{Residual vector quantizer.}
+The encoder output $z_e$ is passed to an RVQ with $N = 8$ stages, each stage using an EMA-updated codebook of $K = 512$ entries of dimension $D = 16$.
+The cascade produces the quantized representation $z_q = \sum_{n=1}^{N} e^{(n)}_{q^{(n)}} \in \mathbb{R}^{D \times (T/4)}$ and a set of $N$ discrete index sequences $\mathbf{q} \in \{1, \ldots, K\}^{N \times (T/4)}$ that constitute the compact token representation of the EEG window.
+A \texttt{post\_quant\_conv} (kernel size 1) projects $z_q$ before the decoder.
+The effective vocabulary over a single time step is $K^N = 512^8$, while each individual codebook lookup remains tractable.
+Codebook entries not used in a batch are replaced by a randomly sampled encoder output to prevent collapse (Laplace smoothing is applied to cluster sizes).
+
+\paragraph{Decoder.}
+The decoder mirrors the encoder: a bottleneck (residual blocks with sequence block) is followed by three resolution levels that progressively double the temporal resolution via nearest-neighbor upsampling and \texttt{Conv1d}, reaching the original length $T$.
+Each level uses $\text{num\_res\_blocks} + 1 = 3$ residual blocks.
+A final \texttt{Conv1d} maps to $\hat{x} \in \mathbb{R}^{19 \times T}$.
+The decoder is trained jointly with the encoder in Stage~1 and frozen thereafter; only the encoder (and its channel adaptor) is retained for downstream probing.
+
+
+\subsection{Stage 1 — Denoising Reconstruction}
+
+The objective of Stage~1 is to train the full encoder--RVQ--decoder pipeline to produce physiologically plausible reconstructions of clean EEG from corrupted inputs, while building a compact discrete latent space.
+Figure~\ref{fig:pipeline} illustrates the two-stage pipeline.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{training_pipeline_figure/training_pipeline_figure}
+  \caption{
+    Two-stage pretraining pipeline.
+    \textbf{Stage~1} (top): the raw EEG is first augmented to produce a clean target
+    $x_{\mathrm{tgt}}$, then independently corrupted to obtain the model input $x_{\mathrm{in}}$.
+    EEG-RQVAE reconstructs $\hat{x}$ from $x_{\mathrm{in}}$ and is trained to match $x_{\mathrm{tgt}}$.
+    \textbf{Stage~2} (bottom): the decoder is discarded; the encoder is adapted by a
+    JEPA-style objective that predicts masked latent representations from visible context.
+    $^*$ Encoder weights are initialized from Stage~1.
+  }
+  \label{fig:pipeline}
+\end{figure}
+
+\paragraph{Data augmentation and corruption.}
+Each training sample undergoes two independent stochastic transformations.
+First, a set of \emph{augmentations} is applied to produce the \emph{clean target} $x_{\mathrm{tgt}}$: a random circular time shift (up to 10\% of the window length), multiplicative amplitude scaling drawn from $\mathcal{U}(0.8, 1.2)$, dropout of up to 2 randomly selected channels (set to zero), additive Gaussian noise ($\sigma = 0.01$), and contiguous time masking of 5--10\% of the sequence.
+Second, the augmented signal $x_{\mathrm{tgt}}$ is \emph{corrupted} to produce the model input $x_{\mathrm{in}}$: additional channel dropout and Gaussian noise are applied independently from the augmentation step, so that the model must recover meaningful structure rather than simply inverting a known transformation.
+This double-perturbation strategy encourages the encoder to learn representations that are invariant to the acquisition-level artefacts most commonly encountered in EEG, such as electrode impedance fluctuations and movement noise, while the decoder is trained to restore clean waveform morphology.
+
+\paragraph{Reconstruction and spectral losses.}
+The generator is trained to minimize a combination of a waveform loss and a multi-scale spectral loss between the reconstruction $\hat{x}$ and the \emph{clean} target $x_{\mathrm{tgt}}$ (not the corrupted input $x_{\mathrm{in}}$):
+\begin{equation}
+  \mathcal{L}_{\mathrm{rec}} = \mathrm{SmoothL1}(\hat{x},\, x_{\mathrm{tgt}}),
+\end{equation}
+\begin{equation}
+  \mathcal{L}_{\mathrm{spec}} = \frac{1}{|\mathcal{N}|}\sum_{n \in \mathcal{N}} \mathcal{L}_{\mathrm{L1}}\!\left(|\mathrm{STFT}_n(\hat{x})|,\, |\mathrm{STFT}_n(x_{\mathrm{tgt}})|\right),
+\end{equation}
+where $\mathcal{N} = \{64, 128, 256, 512\}$ are FFT window sizes (corresponding to 320~ms, 640~ms, 1.28~s, and 2.56~s at 200~Hz), covering all clinically relevant EEG frequency bands from delta to gamma.
+The multi-scale STFT loss penalizes spectral discrepancies at multiple temporal resolutions and is essential for preserving rhythmic EEG features that a pointwise loss tends to smooth out.
+
+\paragraph{Adversarial loss.}
+Starting from epoch 5, a patch-based discriminator $D$ (NLayer-1D, $n_{\mathrm{df}} = 64$, 3 strided convolutional layers) is introduced to enforce local temporal realism.
+The discriminator receives both the real signal $x_{\mathrm{tgt}}$ and the reconstruction $\hat{x}$ and is trained with the hinge loss:
+\begin{equation}
+  \mathcal{L}_{D} = \frac{1}{2}\left(\mathbb{E}[\mathrm{ReLU}(1 - D(x_{\mathrm{tgt}}))] + \mathbb{E}[\mathrm{ReLU}(1 + D(\hat{x}))]\right).
+\end{equation}
+The generator is adversarially updated with:
+\begin{equation}
+  \mathcal{L}_{\mathrm{adv}} = -\mathbb{E}[D(\hat{x})].
+\end{equation}
+The adversarial objective forces the generator to produce high-frequency EEG patterns---such as sleep spindles or gamma-band oscillations---that are physiologically plausible but are typically smoothed out by the $\ell_1$ or $\ell_2$ reconstruction losses alone.
+
+\paragraph{Total Stage~1 objective.}
+The full generator loss combines the four terms:
+\begin{equation}
+  \mathcal{L}_{\mathrm{Stage\,1}} =
+    \mathcal{L}_{\mathrm{rec}}
+    + \lambda_{\mathrm{spec}}\,\mathcal{L}_{\mathrm{spec}}
+    + \lambda_{\mathrm{commit}}\,\mathcal{L}_{\mathrm{commit}}
+    + \lambda_{\mathrm{adv}}\,\mathcal{L}_{\mathrm{adv}},
+  \label{eq:stage1}
+\end{equation}
+with $\lambda_{\mathrm{spec}} = 0.1$, $\lambda_{\mathrm{commit}} = 1.0$, and $\lambda_{\mathrm{adv}} = 0.01$.
+The commitment loss $\mathcal{L}_{\mathrm{commit}}$ is defined in Eq.~\eqref{eq:commit} and regularizes the encoder output toward the RVQ codebook.
+
+
+\subsection{Stage 2 — Latent JEPA Adaptation}
+
+Stage~2 refines the encoder representations toward semantic predictability.
+The decoder and the RVQ codebook are frozen; only the encoder (channel adaptor, convolutional layers, and bottleneck) is updated.
+No reconstruction objective is used.
+This clean separation mirrors the strategy of MedVAE~\citep{varma2025medvaeefficientautomatedinterpretation}, which showed that decoupling reconstruction quality from semantic structure through a dedicated second stage substantially improves downstream discriminability.
+
+\paragraph{Model.}
+The Stage~2 model consists of three components:
+(i)~a \emph{context encoder} (initialized from Stage~1) that processes the observed EEG window;
+(ii)~a \emph{target encoder}, an exponential moving average (EMA) copy of the context encoder whose parameters are never updated by gradient;
+(iii)~a \emph{narrow predictor} $g_\phi$, a compact Transformer (4 blocks, $d_{\mathrm{pred}} = 128$, 4 heads) that operates on the quantized latent sequence.
+The predictor first projects $z_q \in \mathbb{R}^{D \times T_z}$ from $D = 16$ to its internal dimension $d_{\mathrm{pred}} = 128$, adds a learnable positional embedding, and applies 4 self-attention blocks before projecting back to $D = 16$.
+The ``narrow predictor'' design~\citep{assran2023selfsupervisedlearningimagesjointembedding} is intentional: giving the predictor strictly less capacity than the encoder prevents it from trivially solving the prediction task without learning structure.
+
+\paragraph{Latent masking.}
+The temporal dimension of the quantized sequence $z_q \in \mathbb{R}^{D \times T_z}$ (where $T_z = T/4$) is divided into non-overlapping blocks of $B = 25$ tokens, corresponding to approximately 500~ms at 200~Hz with the encoder's 4$\times$ temporal compression.
+At each training step, 25\% of these blocks are randomly selected as the \emph{target set} $\mathcal{T}$; the remaining blocks form the \emph{context set} $\mathcal{C}$.
+Target positions in $z_q$ are replaced by a shared learnable mask token $m \in \mathbb{R}^D$ (initialized from $\mathcal{N}(0, 0.02^2)$) before the context encoder, producing the masked sequence $\tilde{z}$.
+The target encoder always receives the complete, unmasked signal $x$.
+
+\paragraph{JEPA objective.}
+The predictor receives $\tilde{z}$ and the set of target positions $\mathcal{T}$ and produces predicted latent representations $\hat{s}_{\mathcal{T}} \in \mathbb{R}^{D \times |\mathcal{T}|}$.
+The target representations $s_{\mathcal{T}} = f_{\bar{\theta}}(x)_{\mathcal{T}}$ are extracted at the same positions by the EMA encoder.
+The Stage~2 loss is:
+\begin{equation}
+  \mathcal{L}_{\mathrm{Stage\,2}} = \frac{1}{|\mathcal{T}|}\sum_{t \in \mathcal{T}} \left\|\hat{s}_t - \operatorname{sg}[s_t]\right\|_2^2,
+  \label{eq:stage2}
+\end{equation}
+where $\operatorname{sg}[\cdot]$ denotes stop-gradient.
+After each gradient step, the target encoder is updated by EMA with a cosine-scheduled momentum that warms up from $\tau = 1.0$ to $\tau = 0.999$, following the approach of~\citet{assran2023selfsupervisedlearningimagesjointembedding}:
+\begin{equation}
+  \bar{\theta} \;\leftarrow\; \tau\,\bar{\theta} + (1-\tau)\,\theta.
+\end{equation}
+The high final momentum ($\tau = 0.999$) provides a stable prediction target and avoids the representational collapse that can occur when context and target encoders converge too rapidly.
+Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete latent space $z_q$, the model is never penalized for ignoring the low-level signal details already handled in Stage~1, biasing learning toward the structured temporal dependencies that underlie EEG cognitive dynamics.
+
+
+% =============================================================================
 \section{Experiments}
+% =============================================================================
 
-\subsection{Datasets and preprocessing}
-- table which lists the different datasets with BCI task, name, number of channels, montage, duration of events, number of classes, number of subjects and number of samples.
+\subsection{Datasets and Preprocessing}
 
-\subsection{Pretraining}
+\begin{table}[H]
+  \centering
+  \caption{
+    Datasets used for pretraining and downstream evaluation.
+    Row~0 is used for pretraining only (no class labels).
+    Rows~1--12 are evaluation datasets evaluated under linear probing.
+  }
+  \label{tab:datasets}
+  \small
+  \begin{tabular}{llcrccrr}
+    \toprule
+    \textbf{BCI Task} & \textbf{Name} & \textbf{Ch.} & \textbf{Montage} & \textbf{Dur. (s)} & \textbf{Classes} & \textbf{Subjects} & \textbf{Samples} \\
+    \midrule
+    Pretraining (unlabeled) & TUH EEG Corpus          & 29 & 10-20 TCP (AR/LE)  & 30.0 & ---  & 1\,385 & 303\,686 \\
+    \midrule
+    Abnormal EEG detection  & TUH Abnormal EEG        & 26 & 10-20 TCP (AR/LE)  & 30.0 & 2    & 1\,164 &  68\,486 \\
+    Sleep staging           & Sleep-EDF Expanded (50\%)     &  2 & Fpz-Cz / Pz-Oz     & 30.0 & 5    &     39 &  96\,362 \\
+    Emotion recognition     & SEED-V                  & 58 & 62ch 10-20          &  1.0 & 5    &     16 & 115\,001 \\
+    Motor imagery           & PhysioNet EEG MMI       & 64 & 64ch 10-10          &  4.0 & 4    &    109 &   9\,838 \\
+    Emotion recognition     & FACED                   & 30 & 30ch 10-20          & 10.0 & 9    &    123 &  10\,332 \\
+    Motor imagery           & BCI Competition IV-2a   & 22 & 22 EEG + 3 EOG      &  4.0 & 4    &      9 &   4\,696 \\
+    Seizure detection       & Siena Scalp EEG         & 37 & 10-20               & 30.0 & 2    &     14 &  16\,926 \\
+    Seizure detection       & CHB-MIT Scalp EEG       & 23 & 10-20 bipolar        & 10.0 & 1    &     24 & 353\,872 \\
+    Motor imagery           & SHU-MI                  & 32 & 32ch 10-20          &  4.0 & 2    &     25 &  11\,988 \\
+    Imagined speech (words) & BCI Competition 2020 T3 & 60 & 64ch 10-10          &  5.0 & 5    &     30 &   5\,250 \\
+    Imagined speech         & KaraOne                 & 58 & 64ch 10-20          &  5.0 & 11   &     14 &   1\,913 \\
+    Imagined speech         & Chisco                  & 62 & 122ch 10-10         &  4.0 & 39   &      5 &  32\,403 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-\subsection{Evaluation on downstream tasks}
-- metrics and downstream protocol used for evaluation.
-- we used the code of the models from original papers and integrated it in our pipeline with a linear probe with the same structure but adapted for each model.
-- table with the results across the different models avg + std (best in bold and second best undelined)
+
+\subsection{Pretraining Setup}
+
+% Corpus de préentraînement : quels datasets, volume total (heures / samples).
+% Stage 1 : hyperparamètres (lr, batch size, nb epochs, lambda_adv, sigma, masking ratio).
+% Stage 2 : hyperparamètres (lr, momentum EMA, ratio de masquage latent, nb epochs).
+% Matériel : GPU(s) utilisé(s), temps d'entraînement par stage.
 
 
-\section{Limitations and future work}
+\subsection{Linear Probing Evaluation}
 
-- I would like to focus on a more applied modality which is imagined speech decoding. Many applications in BCI. Comparison between phonemes and words decoding. …
+% Protocole, baselines et description à rédiger.
+
+\begin{table}[H]
+  \centering
+  \caption{
+    Linear probing results across six downstream BCI tasks.
+    Metrics reported: balanced accuracy (BACC), Cohen's $\kappa$ (KAPPA), and macro-averaged F1 (MF1).
+    Results are mean\,$\pm$\,std over three random seeds.
+    \textbf{Bold}: best. \underline{Underline}: second best.
+  }
+  \label{tab:linear_probing}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{l ccc ccc ccc ccc ccc ccc}
+    \toprule
+    & \multicolumn{3}{c}{\textbf{BCI2A}}
+    & \multicolumn{3}{c}{\textbf{PhysioNetMI}}
+    & \multicolumn{3}{c}{\textbf{FACED}}
+    & \multicolumn{3}{c}{\textbf{SEED-V}}
+    & \multicolumn{3}{c}{\textbf{TUAB}}
+    & \multicolumn{3}{c}{\textbf{Sleep-EDF}} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+    \cmidrule(lr){11-13}\cmidrule(lr){14-16}\cmidrule(lr){17-19}
+    \textbf{Model}
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1 \\
+    \midrule
+    EEGPT~\citep{NEURIPS2024_4540d267}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    CBraMod~\citep{wang2025cbramod}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    REVE~\citep{ouahidi2026reve}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    CSBrain~\citep{zhou2026csbrain}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    LUNA~\citep{doner2025luna}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    LaBraM~\citep{jiang2024large}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    BAM-U-Net~\citep{bamunnet2026}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \midrule
+    \textbf{EEG-RQVAE (ours)}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
 
 
+\subsection{Ablation Study}
 
+% --- Ablation sur la pipeline ---
+% (a) Stage 1 seul (sans Stage 2 JEPA)
+% (b) Stage 1 + Stage 2 (modèle complet)
+% → montre la contribution isolée du Stage 2.
+
+% --- Ablation sur la quantification ---
+% (a) VAE continu (sans RVQ)
+% (b) VQ-VAE (1 seul codebook)
+% (c) RVQ (N codebooks, modèle complet)
+% → montre l'apport de la quantification résiduelle.
+
+% --- Ablation sur le backbone (si résultats disponibles) ---
+% (a) Transformer encodeur
+% (b) BiMamba encodeur
+% → justifie le choix SSM.
+
+% Table compacte : 3 lignes × nb tâches clés (2-3 suffisent).
+
+
+% =============================================================================
+\section{Limitations}
+% =============================================================================
+
+% --- Limitations techniques ---
+% (1) Risque de collapse du codebook RVQ si le corpus de préentraînement est insuffisant
+%     ou si la dimension des vecteurs est mal calibrée.
+% (2) Sensibilité au montage : le modèle est entraîné sur un montage fixe (nb canaux, positions) ;
+%     le transfert vers des montages différents nécessite une adaptation.
+% (3) Stage 2 augmente le coût total de préentraînement sans garantie de gain uniforme
+%     sur toutes les tâches (gain potentiellement plus faible sur les tâches à faible contenu sémantique).
+% (4) L'évaluation se limite au régime de linear probing ; les performances en fine-tuning
+%     complet restent à explorer.
+
+
+% =============================================================================
+\section{Future Work}
+% =============================================================================
+
+% (1) Application ciblée au décodage de parole imaginée :
+%     comparaison systématique phonèmes vs mots, lien avec les applications BCI cliniques.
+% (2) Extension à des montages variables (comme LaBraM ou BIOT) via un embedding
+%     position-agnostic des électrodes.
+% (3) Utilisation des tokens RVQ discrets comme entrée d'un modèle génératif autorégressif
+%     (analogue à RQ-Transformer pour l'image).
+% (4) Scaling : impact du volume de données de préentraînement sur la qualité des représentations.
+
+
+% =============================================================================
 \section{Conclusion}
+% =============================================================================
+
+% ~100 mots.
+% Récapituler les 4 contributions (EEG-RQVAE, pipeline 2 stages, analyse SSM, benchmark).
+% Mentionner le résultat principal (ex. Xème sur N tâches en linear probing).
+% Ouvrir sur la parole imaginée et la tokenisation discrète pour la génération.
 
 
 \newpage
@@ -147,21 +556,47 @@ Our main contributions are:
 \bibliographystyle{icml2026}
 
 
-
 \newpage
 \appendix
 \onecolumn
 
-\section{Foundation models used for comparisons}
-- a paragraph for each model describing the main contribution of the architecture / method applied.
+% =============================================================================
+\section{Foundation Models Used for Comparison}
+% =============================================================================
 
-\section{Ablation study on inductive bias on spatial positionning of channels}
+% Un paragraphe par modèle baseline décrivant :
+% architecture principale, objectif de préentraînement, données d'entraînement, nb paramètres.
+% Modèles : EEGPT, CBraMod, REVE, CSBrain, LuMamba, BAM-U-Net, LUNA.
 
-\section{Computational analysis}
--
+
+% =============================================================================
+\section{Ablation: Inductive Bias on Spatial Positioning of Channels}
+% =============================================================================
+
+% Comparer différentes stratégies de position encoding spatial :
+% (a) sans position encoding spatial
+% (b) position encoding appris
+% (c) position encoding basé sur les coordonnées 3D des électrodes (MNI)
+% Évaluer l'impact sur les tâches qui exploitent la topographie (motor imagery, ERP).
 
 
-\section{Implementation details}
+% =============================================================================
+\section{Computational Analysis}
+% =============================================================================
+
+% Table : nb de paramètres, FLOPs par forward pass, temps d'inférence (ms/sample),
+% mémoire GPU (Go) pour EEG-RQVAE vs baselines.
+% Discuter le compromis performance / efficacité.
+
+
+% =============================================================================
+\section{Implementation Details}
+% =============================================================================
+
+% Architecture complète (dimensions, nb de blocs, nb de codebooks, taille des codebooks).
+% Détail des augmentations : niveaux de bruit, ratios de masquage, types de corruption.
+% Hyperparamètres complets des deux stages.
+% Code disponible à : [lien anonymisé pour soumission].
 
 
 \end{document}

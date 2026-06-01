@@ -111,9 +111,6 @@
 %% L_vq: straight down from EEG-RQVAE
 \draw[arr] (rqvae_a.south) -- (l_vq_a.north);
 
-%% Panel border
-\draw[dashed, thick, rounded corners=8pt]
-  (-0.1, 0.3) rectangle (17.1, 9.0);
 
 %%=============================================================================
 %% STAGE 2 — EEG-JEPA Adaptation (pipeline lowered by 0.4, encoders shifted right)
@@ -218,9 +215,6 @@
   (jepa_pred.south |- l_jepa.west)
   -- (jepa_pred.south);
 
-%% Panel border
-\draw[dashed, thick, rounded corners=8pt]
-  (-0.1, -1.4) rectangle (17.55, -8.6);
 
 \end{tikzpicture}
 \end{document}
