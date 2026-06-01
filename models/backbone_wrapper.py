@@ -156,25 +156,28 @@ class BackboneWrapper(torch.nn.Module):
 
         if self.model_name == "EEGPT":
             eegpt_config = dict(self.model_config)
-            use_bcic2a_probe_adapter = bool(
-                eegpt_config.pop("use_eegpt_bcic2a_probe_adapter", False)
-            )
-            eegpt_config.pop("input_adapter_in_channels", None)
-            eegpt_config.pop("input_adapter_out_channels", None)
-            eegpt_config.pop("input_adapter_max_norm", None)
-            eegpt_config.pop("input_target_length", None)
+            # EEGPT is keyed by channel name and was pretrained on a fixed
+            # montage, so it must always run on a set of channels it knows.
+            # Mirror the original EEGPT downstream scripts: build the encoder on
+            # the fixed 19-channel montage and let a learnable Conv1d input
+            # adapter (models/model.py, like the repo's `chan_conv`) map the
+            # dataset's channels onto these — works for any dataset, raw or mapped.
+            for key in (
+                "use_eegpt_bcic2a_probe_adapter",
+                "input_adapter_in_channels",
+                "input_adapter_out_channels",
+                "input_adapter_max_norm",
+                "input_target_length",
+            ):
+                eegpt_config.pop(key, None)
 
-            channels = (
-                EEGPT_BCIC2A_PROBE_CHS
-                if use_bcic2a_probe_adapter
-                else self._get_dataset_channels()
-            )
+            channels = list(EEGPT_BCIC2A_PROBE_CHS)
             eegpt_config["channels"] = channels
 
-            if "img_size" not in eegpt_config:
-                eegpt_config["img_size"] = (len(channels), 1024)
-            else:
+            if eegpt_config.get("img_size"):
                 eegpt_config["img_size"] = (len(channels), eegpt_config["img_size"][1])
+            else:
+                eegpt_config["img_size"] = (len(channels), 1024)
 
             return EEGPT(**eegpt_config)
 

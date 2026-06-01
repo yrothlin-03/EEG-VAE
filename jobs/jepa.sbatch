@@ -7,8 +7,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --job-name=jepa_eegvae
-#SBATCH --output=logs/jepa/%x_%j.out
-#SBATCH --error=logs/jepa/%x_%j.err
+#SBATCH --output=/home/infres/yrothlin-24/EEG-VAE/logs/jepa/%x_%j.out
+#SBATCH --error=/home/infres/yrothlin-24/EEG-VAE/logs/jepa/%x_%j.err
 
 set -euo pipefail
 
@@ -24,8 +24,16 @@ cd /home/infres/yrothlin-24/EEG-VAE
 
 mkdir -p logs/jepa
 
+# ── Phase 1 VQ-VAE to JEPA-train ──────────────────────────────────────────────
+# This is the only thing to change to pick the model. ch, vq_n_quantizers and
+# sequence_block (mamba/transformers) are auto-detected from these weights.
+CKPT_ROOT=/projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining
+VAE_CHECKPOINT=$CKPT_ROOT/vq/mamba/q8/pretraining_final.pt
+# VAE_CHECKPOINT=$CKPT_ROOT/vq/transformers/q8/pretraining_final.pt
+
 python main_jepa.py \
     --use_parsing \
-    --num_epochs 30 \
-    --max_step_train 3000 \
-    --max_step_val 500
+    --num_epochs 20 \
+    --max_step_train 5000 \
+    --max_step_val 500 \
+    --vae_checkpoint "$VAE_CHECKPOINT" 

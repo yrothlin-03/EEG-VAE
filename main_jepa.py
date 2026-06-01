@@ -140,8 +140,11 @@ def main(config):
 
     # Route checkpoints/logs into a variant-specific sub-directory so JEPA runs
     # built on different VQ-VAEs (sequence block, RVQ stage count) don't collide.
+    # Use the sequence_block auto-detected from the checkpoint, not the yaml,
+    # so switching phase1.checkpoint alone routes to the right directory.
     n_quantizers = getattr(model.context_encoder.quantize, "n_quantizers", 1)
-    training_config = add_type_dirs(training_config, model_config, n_quantizers)
+    detected_block = getattr(model, "sequence_block", model_config.get("sequence_block", "attention"))
+    training_config = add_type_dirs(training_config, {"sequence_block": detected_block}, n_quantizers)
 
     print(f"[JEPA] Phase 1 checkpoint : {vae_checkpoint_path}")
     print(f"[JEPA] Checkpoint dir     : {training_config['model_checkpoint_dir']}")

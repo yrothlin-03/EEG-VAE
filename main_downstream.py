@@ -434,6 +434,25 @@ def _adapt_model_channels_for_raw(
     return model_config
 
 
+def _adapt_eegpt_input_channels(model_config: dict, loaders: dict) -> dict:
+    """Size EEGPT's learnable channel adapter to the dataset's channel count.
+
+    EEGPT runs on a fixed 19-channel montage (see backbone_wrapper); a Conv1d
+    input adapter maps the dataset's `n_in` channels onto it. `n_in` depends on
+    channel_mode (19 in 'mapped', raw count otherwise), so infer it from the
+    data rather than hard-coding it. Mirrors the original repo's `chan_conv`.
+    """
+    model_config = dict(model_config)
+    n_in = _infer_loader_channels(loaders)
+    model_config["input_adapter_in_channels"] = n_in
+    model_config.setdefault("input_adapter_out_channels", 19)
+    img_size = model_config.get("img_size")
+    target_len = img_size[1] if img_size else 1024
+    model_config.setdefault("input_target_length", target_len)
+    print(f"[DOWNSTREAM] EEGPT channel adapter: {n_in} → 19 (fixed montage encoder)")
+    return model_config
+
+
 def main(config: dict):
     base_model_config = config.get("model", {})
     dataset_name = config.get("dataset_name")
@@ -463,6 +482,8 @@ def main(config: dict):
         )
     else:
         model_config = selected_model_config
+        if model_name == "EEGPT":
+            model_config = _adapt_eegpt_input_channels(model_config, loaders)
         if checkpoint_path is not None:
             print(f"[DOWNSTREAM] {model_name} checkpoint: {checkpoint_path}")
 

@@ -355,6 +355,26 @@ class DownstreamEEGVAE(nn.Module):
 
         return self.backbone.load_state_dict(compatible_state, strict=False)
 
+    def train(self, mode: bool = True):
+        """Keep frozen sub-modules in eval mode.
+
+        The channel adaptor uses BatchNorm1d; if a frozen backbone is left in
+        train mode its running stats keep drifting during downstream training,
+        so the "frozen" encoder no longer reproduces the pretrained features.
+        Force the frozen parts to eval while the trainable parts follow ``mode``.
+        """
+        super().train(mode)
+        if not mode:
+            return self  # full eval — nothing to override
+
+        if self.mode == "linear_probing":
+            self.backbone.eval()
+        elif self.mode == "channel_training":
+            self.backbone.eval()
+            self.backbone.channel_adaptor.train()
+        # finetuning / full_training: whole backbone trains, leave as-is
+        return self
+
     def forward(self, x):
         if self.mode == "linear_probing":
             with torch.no_grad():

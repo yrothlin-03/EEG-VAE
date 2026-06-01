@@ -42,9 +42,14 @@ class Model(torch.nn.Module):
         self.input_adapter = None
         self.input_target_length = None
 
-        if self.model_name == "EEGPT" and model_config.get("use_eegpt_bcic2a_probe_adapter", False):
+        if self.model_name == "EEGPT":
+            # Learnable 1x1 channel adapter (≡ the original repo's `chan_conv`):
+            # maps the dataset's channels onto EEGPT's fixed 19-channel montage,
+            # so the pretrained encoder always sees the channels it knows.
+            # input_adapter_in_channels is set from the data in main_downstream;
+            # it stays trainable under linear_probing (only the backbone freezes).
             self.input_adapter = Conv1dWithConstraint(
-                int(model_config.get("input_adapter_in_channels", 22)),
+                int(model_config.get("input_adapter_in_channels", 19)),
                 int(model_config.get("input_adapter_out_channels", 19)),
                 kernel_size=1,
                 max_norm=float(model_config.get("input_adapter_max_norm", 1.0)),

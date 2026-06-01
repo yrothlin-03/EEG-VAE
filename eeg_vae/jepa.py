@@ -256,8 +256,9 @@ def build_jepa_model(
     ckpt  = torch.load(vae_checkpoint_path, map_location=device)
     state = ckpt.get("model_state_dict", ckpt)
 
-    # Auto-detect ch and n_quantizers from checkpoint weights so that
-    # jepa.yaml never needs to be kept manually in sync with the VQ-VAE config.
+    # Auto-detect ch, n_quantizers and sequence_block from checkpoint weights so
+    # that jepa.yaml never needs to be kept manually in sync with the VQ-VAE
+    # config. Switching the Phase 1 model = just changing phase1.checkpoint.
     model_config = dict(model_config)
     w = state.get("autoencoder.decoder.conv_out.weight")
     if w is not None:
@@ -268,6 +269,15 @@ def build_jepa_model(
     if n_q > 0:
         model_config["vq_n_quantizers"] = n_q
 
+    # sequence_block: mamba if Mamba-specific keys are present, else attention.
+    has_mamba = any("autoencoder.encoder.mid.attn_1.mamba." in k for k in state)
+    model_config["sequence_block"] = "mamba" if has_mamba else "attention"
+
+    print(
+        f"[JEPA] Detected VQ-VAE: ch={model_config.get('ch')} "
+        f"vq_n_quantizers={n_q} sequence_block={model_config['sequence_block']}"
+    )
+
     eeg_vae = EEGVAE(**model_config)
     eeg_vae.load_state_dict(state)
     eeg_vae.to(device)
@@ -275,8 +285,12 @@ def build_jepa_model(
     context_encoder = JEPAEncoder(eeg_vae)
     predictor = EEGPredictor(**predictor_config)
 
-    return EEGJEPA(
+    model = EEGJEPA(
         context_encoder=context_encoder,
         predictor=predictor,
         ema_momentum=ema_momentum,
     )
+    # Expose the resolved sequence_block so the caller can route checkpoints
+    # into the correct variant directory without re-reading the checkpoint.
+    model.sequence_block = model_config["sequence_block"]
+    return model

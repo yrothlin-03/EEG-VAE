@@ -8,31 +8,34 @@ data:
   pin_memory: true
   persistent_workers: false
   seed: 100
-  channel_mode: "mapped"
+  channel_mode: "raw"  # match pretraining (19-ch mapped layout); "raw" only with mode=channel_training
   return_ch_names: false
 
 
 training:
   task: classification
   seed: 8
-  model_name: CBRAMOD  # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
+  model_name: EEGVAE  # EEGVAE, CBRAMOD, EEGMAMBA, LUNA, FEMBA, EEGPT, REVE
   model_config_path: /home/infres/yrothlin-24/EEG-VAE/configs/model_configs.yaml
-  mode: linear_probing  # linear_probing, channel_training, finetuning, full_training
+  mode: channel_training  # linear_probing, channel_training, finetuning, full_training
   strict_checkpoint_loading: false
 
   # ── EEGVAE checkpoint selection ──────────────────────────────────────────────
   # The wrapper auto-detects ch, model_type (kl/vq), and vq_n_quantizers from the
   # checkpoint weights — no need to update the model section below when switching.
+  # New checkpoint layout: {model_type}/{sequence_block}[/q{n}]/pretraining_final.pt
   #
   # Phase 1 mamba (KL-VAE):
-  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/mamba/pretraining_final.pt
+  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/kl/mamba/pretraining_final.pt
   #
-  # Phase 1 VQ-VAE (RVQ):
-  model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/pretraining_final.pt
+  # Phase 1 VQ-VAE (RVQ, mamba, q8):
+  model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/mamba/q8/pretraining_final.pt
+  #
+  # Phase 1 VQ-VAE (RVQ, transformers, q8):
+  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/transformers/q8/pretraining_final.pt
   #
   # Phase 2 JEPA:
   # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/jepa/jepa_final.pt
-  # model_weights: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/mamba/pretraining_final.pt
 
   loss_dir: /home/infres/yrothlin-24/EEG-VAE/logs/downstream/losses
   model_checkpoint_dir: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/downstream
