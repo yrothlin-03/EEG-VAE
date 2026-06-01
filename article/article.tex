@@ -387,6 +387,19 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
 % =============================================================================
 
 \subsection{Datasets and Preprocessing}
+\label{subsec:datasets}
+
+We pretrain on the Temple University Hospital EEG Corpus (TUEG) and evaluate the learned representations on twelve downstream BCI datasets spanning six task families: abnormal-EEG detection, sleep staging, emotion recognition, motor imagery, seizure detection, and imagined-speech decoding.
+Table~\ref{tab:datasets} summarizes the corpora; full per-dataset details and label definitions are provided in Appendix~\ref{app:dataset_details}.
+All datasets are processed by a single, dataset-agnostic preprocessing pipeline so that pretraining and downstream signals share identical formatting and sampling rate.
+
+\paragraph{Signal preprocessing.}
+Each recording is loaded once with MNE, resampled to a common rate of $200$~Hz, band-pass filtered to $0.5$--$75$~Hz, and notch filtered at $60$~Hz (all IIR filters).
+We then apply per-channel z-score normalization, computed over each window with a finite-value mask that neutralizes flat or non-finite channels.
+Class labels are read from each dataset's native annotations and remapped to integer classes; segments without a valid label are discarded.
+Within every labeled segment we extract fixed-length windows whose duration is set per dataset to match the natural epoch of the task (the \emph{Dur.} column of Table~\ref{tab:datasets}); when a segment does not divide evenly, the trailing window is anchored to the segment end to avoid zero-padding artifacts.
+For the unlabeled pretraining corpus, the entire recording is treated as a single segment and windowed with the same procedure.
+Each window is stored as an independent record in an LMDB store together with its subject identifier, sampling rate, channel names, and label, enabling scalable, subject-aware data loading.
 
 \begin{table}[H]
   \centering
@@ -422,13 +435,83 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
 
 \subsection{Pretraining Setup}
 
-% Corpus de préentraînement : quels datasets, volume total (heures / samples).
-% Stage 1 : hyperparamètres (lr, batch size, nb epochs, lambda_adv, sigma, masking ratio).
-% Stage 2 : hyperparamètres (lr, momentum EMA, ratio de masquage latent, nb epochs).
-% Matériel : GPU(s) utilisé(s), temps d'entraînement par stage.
+\paragraph{Pretraining corpus.}
+Both stages are pretrained on the TUEG corpus, excluding the TUAB and TUAR subsets to prevent leakage into the downstream abnormal-EEG and artifact tasks.
+We sample $10\%$ of the corpus files, yielding $1{,}385$ subjects and $303{,}686$ non-overlapping windows of $30$~s at $200$~Hz.
+The corpus is split at the subject level into $90\%$ training and $5\%$ validation (seed $42$), so that no subject appears in both partitions.
+
+\paragraph{Stage~1 — denoising reconstruction.}
+The autoencoder is trained for $30$ epochs with AdamW (learning rate $10^{-4}$, weight decay $10^{-2}$, $\beta=(0.5,0.9)$), a cosine schedule, gradient clipping at $1.0$, and mixed-precision training.
+The reconstruction objective is a smooth-$\ell_1$ loss (weight $1.0$) complemented by a multi-scale STFT spectral loss (weight $0.1$; FFT window sizes $\{64,128,256,512\}$ samples, spanning $0.32$--$2.56$~s at $200$~Hz) and an adversarial term (weight $10^{-2}$) provided by a patch discriminator.
+The discriminator (AdamW, learning rate $2\times10^{-4}$) is activated only after epoch~5 to let the autoencoder first stabilize, and is then updated jointly with the generator at every step.
+On the training split we apply stochastic EEG augmentations (each with probability $0.5$): circular time shifts (up to $10\%$ of the window), multiplicative amplitude scaling in $[0.8,1.2]$, dropout of up to two channels, additive Gaussian noise ($\sigma=0.01$), and contiguous time masking ($5$--$10\%$ of the window); the validation split is never augmented.
+The encoder maps the $19$-channel input through a channel adaptor to $64$ internal channels and a $3$-level bidirectional Mamba backbone (base width $128$, multipliers $(1,2,4)$, two residual blocks per level) to a $16$-dimensional latent.
+We train two variants of this stage that differ only in the latent bottleneck: a continuous \textbf{KL-Mamba} model regularized toward a unit Gaussian (KL weight $10^{-5}$), and a residual vector-quantized \textbf{RVQ-Mamba} model with $8$ quantizer stages, a codebook of $512$ entries per stage (EMA decay $0.99$), and commitment cost $\beta=0.25$.
+
+\paragraph{Stage~2 — latent JEPA adaptation.}
+Starting from the frozen Stage~1 RVQ-Mamba checkpoint, the encoder is adapted with the latent JEPA objective for $30$ epochs using AdamW (learning rate $2\times10^{-5}$, weight decay $5\times10^{-2}$, $\beta=(0.9,0.95)$), a cosine schedule, gradient clipping at $1.0$, and mixed precision.
+Targets are produced by an EMA copy of the encoder whose momentum follows a cosine warm-up from $1.0$ to its final value $0.999$.
+We predict $25\%$ of the temporal blocks (block size $25$ tokens, $\approx500$~ms given the $4\times$ temporal compression) from the visible context, using a lightweight Transformer predictor (embedding dimension $128$, $4$ heads, $4$ layers) and a mean-squared-error loss in latent space; spatial channel masking is disabled in this configuration.
+
+% Matériel : GPU(s) utilisé(s), temps d'entraînement par stage — à compléter.
+
+
+\subsection{Pretraining Analysis}
+\label{subsec:pretraining_analysis}
+
+Before measuring downstream transfer, we analyze the pretrained models intrinsically, following the two-stage design: Stage~1 should faithfully reconstruct the EEG signal, while Stage~2 should add semantic structure to the latent space.
+All analyses below are computed on held-out PhysioNet~MI windows that were never seen during pretraining.
+
+\paragraph{Stage~1 reconstruction fidelity.}
+\Cref{fig:reconstruction} overlays reconstructed and original waveforms for the three Stage~1 encoders across representative channels.
+All variants recover the dominant temporal morphology of the signal, including the oscillatory bursts and slow drifts, with the quantized models (RVQ-Mamba, RVQ-Transformer) tracking sharp transients slightly more tightly than the continuous KL-Mamba.
+To verify that fidelity is not limited to the time domain, \cref{fig:psd} compares the average power spectral density (PSD) of the reconstructions against the original signal.
+The reconstructions match the original spectrum closely across the physiologically relevant $\delta$--$\beta$ bands ($0.5$--$30$~Hz); the RVQ models in particular preserve power up into the low-$\gamma$ range, whereas the KL-Mamba model attenuates high-frequency content more aggressively, consistent with the smoothing induced by its Gaussian latent prior.
+The shared notch at $60$~Hz reflects the line-noise filtering applied during preprocessing.
+Together these results confirm that Stage~1 yields high-fidelity reconstructions and that residual quantization does not degrade---and even slightly improves---spectral fidelity relative to the continuous bottleneck.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/reconstruction_comparison.png}
+  \caption{
+    Stage~1 reconstruction in the time domain on held-out PhysioNet~MI data.
+    Original (solid) vs.\ reconstructed (dashed) waveforms for the KL-Mamba, RVQ-Mamba, and RVQ-Transformer encoders across representative channels.
+  }
+  \label{fig:reconstruction}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/psd_comparison.png}
+  \caption{
+    Stage~1 reconstruction in the frequency domain.
+    Average power spectral density of the original signal and of each model's reconstruction, with the canonical EEG bands ($\delta,\theta,\alpha,\beta,\gamma$) shaded.
+    The RVQ variants preserve spectral power further into high frequencies than the continuous KL-Mamba model.
+  }
+  \label{fig:psd}
+\end{figure}
+
+\paragraph{Stage~2 latent semantic structure.}
+High reconstruction fidelity does not by itself imply that the latent space is organized along task-relevant axes.
+To probe this, we measure the $k$-nearest-neighbour label consistency in latent space ($k=10$): the fraction of a window's neighbours that share its class label, where a value of $0.25$ corresponds to the random baseline for this four-class problem.
+\Cref{fig:latent_semantic} reports this metric for the three Stage~1 encoders and for the Stage~2 JEPA model.
+The Stage~1 encoders---whether continuous or quantized---hover around the random baseline ($0.243$--$0.251$), indicating that reconstruction alone does not cluster the latent space by semantic class.
+The JEPA-adapted encoder is the only model to rise clearly above chance ($0.266$), showing that the latent prediction objective of Stage~2 instills semantic structure that pure signal reconstruction cannot.
+This corroborates our central hypothesis: predicting masked representations in latent space, rather than reconstructing raw signal, is what drives the emergence of task-relevant structure, and it is consistent with the downstream gains reported in \cref{subsec:linear_probing}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\linewidth]{figures/temporal_consistency.png}
+  \caption{
+    Latent semantic structure measured by $k$-NN label consistency ($k=10$) on held-out PhysioNet~MI data.
+    Only the Stage~2 JEPA model rises clearly above the random baseline (dashed), whereas the Stage~1 encoders remain near chance.
+  }
+  \label{fig:latent_semantic}
+\end{figure}
 
 
 \subsection{Linear Probing Evaluation}
+\label{subsec:linear_probing}
 
 % Protocole, baselines et description à rédiger.
 
@@ -482,9 +565,57 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
       & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     \midrule
-    \textbf{EEG-RQVAE (ours)}
+    \textbf{EEG-VAE\,/\,KL-Mamba (ours)}
       & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \textbf{EEG-VAE\,/\,RVQ-Mamba (ours)}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \textbf{EEG-VAE\,/\,JEPA (ours)}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{
+    Frozen backbone size, latent representation shape, and number of trainable
+    (linear probe) parameters per downstream dataset for each model variant.
+  }
+  \label{tab:model_capacity}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{l c c rrrrrr}
+    \toprule
+    & \textbf{Frozen size} & \textbf{Latent shape}
+    & \multicolumn{6}{c}{\textbf{Trainable parameters}} \\
+    \cmidrule(lr){4-9}
+    \textbf{Model} & (params) &
+    & BCI2A & PhysioNetMI & FACED & SEED-V & TUAB & Sleep-EDF \\
+    \midrule
+    EEGPT~\citep{NEURIPS2024_4540d267}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    CBraMod~\citep{wang2025cbramod}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    REVE~\citep{ouahidi2026reve}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    CSBrain~\citep{zhou2026csbrain}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    LUNA~\citep{doner2025luna}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    LaBraM~\citep{jiang2024large}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    BAM-U-Net~\citep{bamunnet2026}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    \midrule
+    \textbf{EEG-VAE\,/\,KL-Mamba (ours)}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    \textbf{EEG-VAE\,/\,RVQ-Mamba (ours)}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
+    \textbf{EEG-VAE\,/\,JEPA (ours)}
+      & --- & --- & --- & --- & --- & --- & --- & --- \\
     \bottomrule
   \end{tabular}%
   }
@@ -519,12 +650,11 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
 % --- Limitations techniques ---
 % (1) Risque de collapse du codebook RVQ si le corpus de préentraînement est insuffisant
 %     ou si la dimension des vecteurs est mal calibrée.
-% (2) Sensibilité au montage : le modèle est entraîné sur un montage fixe (nb canaux, positions) ;
-%     le transfert vers des montages différents nécessite une adaptation.
 % (3) Stage 2 augmente le coût total de préentraînement sans garantie de gain uniforme
 %     sur toutes les tâches (gain potentiellement plus faible sur les tâches à faible contenu sémantique).
-% (4) L'évaluation se limite au régime de linear probing ; les performances en fine-tuning
-%     complet restent à explorer.
+% (1) pour la comparaison en évaluation on a utilise les checkpoints des modèles donc les préentrainements ne sont pas équivalents.
+% (2) on s'est limité au préentrainement sur un seul corpus or une diversification du corpus de préentrainement pourrait améliorer la généralisation. (aussi on a fait un petit préentrainement mais un plus gros donnerait peut être de meilleurs résultats)
+% (3) on n'a pas exploré empiriquement les modifications de performances en fonction de la combinaison des loss.
 
 
 % =============================================================================
@@ -533,12 +663,9 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
 
 % (1) Application ciblée au décodage de parole imaginée :
 %     comparaison systématique phonèmes vs mots, lien avec les applications BCI cliniques.
-% (2) Extension à des montages variables (comme LaBraM ou BIOT) via un embedding
-%     position-agnostic des électrodes.
 % (3) Utilisation des tokens RVQ discrets comme entrée d'un modèle génératif autorégressif
 %     (analogue à RQ-Transformer pour l'image).
 % (4) Scaling : impact du volume de données de préentraînement sur la qualité des représentations.
-
 
 % =============================================================================
 \section{Conclusion}
@@ -569,10 +696,72 @@ Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete l
 % Modèles : EEGPT, CBraMod, REVE, CSBrain, LuMamba, BAM-U-Net, LUNA.
 
 
-% =============================================================================
-\section{Ablation: Inductive Bias on Spatial Positioning of Channels}
-% =============================================================================
 
+\section{Dataset Details and Preprocessing}
+\label{app:dataset_details}
+
+This appendix details the unified preprocessing pipeline and the dataset-specific label definitions summarized in \cref{subsec:datasets} and Table~\ref{tab:datasets}.
+
+\subsection{Preprocessing Configuration}
+
+All datasets are processed with the single configuration reported in Table~\ref{tab:preproc_params}.
+The pipeline performs, in order: resampling to $200$~Hz, IIR band-pass filtering ($0.5$--$75$~Hz), IIR notch filtering ($60$~Hz), per-channel z-score normalization, and fixed-length windowing.
+The window length is the only parameter varied across datasets and is set to the natural epoch of each task (Table~\ref{tab:datasets}); when a labeled segment is not an integer multiple of the window length, the last window is anchored to the end of the segment rather than zero-padded.
+Each resulting window is written as an independent LMDB record holding the signal tensor, sampling rate, channel names, subject identifier, and integer label.
+
+\begin{table}[H]
+  \centering
+  \caption{Shared preprocessing parameters.}
+  \label{tab:preproc_params}
+  \small
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Parameter} & \textbf{Value} \\
+    \midrule
+    Resampling rate        & $200$~Hz \\
+    Band-pass filter       & $0.5$--$75$~Hz (IIR) \\
+    Notch filter           & $60$~Hz (IIR) \\
+    Normalization          & per-channel z-score \\
+    Window length          & per-dataset (see Table~\ref{tab:datasets}) \\
+    Window overlap         & $0$~s \\
+    Trailing-window mode    & anchored to segment end \\
+    Storage format         & LMDB (one window per record) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Downstream Datasets}
+
+Unless otherwise noted, labels follow each dataset's official protocol and are remapped to contiguous integer classes; subjects are split $80/10/10$ into train/validation/test at the subject level (seed $42$), so the evaluation is fully subject-independent.
+
+\begin{itemize}
+  \item \textbf{TUH Abnormal EEG (TUAB)} --- binary normal vs.\ abnormal classification; the label is read from the corpus directory structure.
+  \item \textbf{Sleep-EDF Expanded} --- five-class sleep staging (W, N1, N2, N3/N4 merged, REM) from the Fpz-Cz / Pz-Oz derivations; we use $50\%$ of the cassette files and balance the over-represented wake class.
+  \item \textbf{SEED-V} --- five emotion classes; labels are derived from the per-session emotion schedule aligned to the provided trial onsets/offsets.
+  \item \textbf{PhysioNet EEG MMI} --- four-class motor imagery from the 64-channel runs.
+  \item \textbf{FACED} --- nine-class affective recognition over a 30-channel montage.
+  \item \textbf{BCI Competition IV-2a} --- four-class motor imagery (left hand, right hand, feet, tongue) from 22 EEG channels.
+  \item \textbf{Siena Scalp EEG} and \textbf{CHB-MIT} --- seizure detection; CHB-MIT is provided in a bipolar montage.
+  \item \textbf{SHU-MI} --- binary motor imagery over 32 channels.
+  \item \textbf{BCI Competition 2020 Track~3}, \textbf{KaraOne}, and \textbf{Chisco} --- imagined-speech decoding; for Chisco we extract the recall (imagined-speech) phase of each trial. These constitute the imagined-speech benchmark that is the primary focus of our evaluation.
+\end{itemize}
+
+
+% =============================================================================
+\section{Ablation: Channel Mapping and Spatial Information}
+\label{app:channel_ablation}
+
+EEG datasets differ widely in montage, channel count, and naming conventions, so a foundation model trained on a fixed input layout requires a strategy to reconcile heterogeneous montages.
+We adopt a channel-mapping scheme that projects every dataset onto a common 19-channel subset of the international 10--20 system \{\textsc{Fp1}, \textsc{Fp2}, \textsc{F3}, \textsc{F4}, \textsc{C3}, \textsc{C4}, \textsc{P3}, \textsc{P4}, \textsc{O1}, \textsc{O2}, \textsc{F7}, \textsc{F8}, \textsc{T7}, \textsc{T8}, \textsc{P7}, \textsc{P8}, \textsc{Fz}, \textsc{Cz}, \textsc{Pz}\}, so that pretraining and all downstream tasks share an identical $19 \times T$ input.
+
+\paragraph{Mapping procedure.}
+Channel names are first normalized (uppercasing, stripping of \texttt{EEG}/\texttt{REF}/\texttt{LE} prefixes and suffixes, removal of separators) and matched against an explicit, hand-verified mapping table per dataset.
+Older nomenclature is remapped to its modern equivalent (e.g.\ \textsc{T3}$\to$\textsc{T7}, \textsc{T4}$\to$\textsc{T8}, \textsc{T5}$\to$\textsc{P7}, \textsc{T6}$\to$\textsc{P8}); high-density montages collapse neighbouring electrodes onto the nearest target site, and bipolar montages (e.g.\ CHB-MIT) are mapped from their derivation pairs.
+When several source channels map to the same target, midline and central electrodes are given priority.
+Non-EEG modalities (EOG, EMG, ECG, respiration, markers, mastoids, etc.) are removed.
+Target channels absent from a montage are zero-filled and flagged by a boolean presence mask, so the encoder always receives a $19 \times T$ tensor regardless of the source montage.
+
+% --- Ablation à mener ---
 % Comparer différentes stratégies de position encoding spatial :
 % (a) sans position encoding spatial
 % (b) position encoding appris

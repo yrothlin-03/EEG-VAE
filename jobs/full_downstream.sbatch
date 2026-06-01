@@ -6,7 +6,7 @@
 #SBATCH --mem=48G
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --job-name=full_downstream_jepa
+#SBATCH --job-name=full_downstream_eegvae_mamba_mapped
 #SBATCH --output=/home/infres/yrothlin-24/EEG-VAE/logs/full_downstream/%x_%j.out
 #SBATCH --error=/home/infres/yrothlin-24/EEG-VAE/logs/full_downstream/%x_%j.err
 
@@ -71,7 +71,7 @@ declare -A RUN_MODE=(
     [eegpt]=linear_probing
 )
 
-targets=(jepa)   # e.g. add: kl_mamba vq_transformers cbramod eegmamba luna femba eegpt
+targets=(vq_mamba)   # e.g. add: kl_mamba vq_transformers cbramod eegmamba luna femba eegpt
 
 OUT_ROOT=/projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/full_downstream
 LOG_ROOT=/home/infres/yrothlin-24/EEG-VAE/logs/full_downstream
@@ -85,7 +85,7 @@ for target in "${targets[@]}"; do
         if [[ "$dataset" == "TUAB" ]]; then
             channel_mode=mapped
         else
-            channel_mode=raw
+            channel_mode=mapped
         fi
         for seed in "${seeds[@]}"; do
             echo "======================================"
