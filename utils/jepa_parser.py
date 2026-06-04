@@ -18,13 +18,11 @@ def get_parser():
     parser.add_argument("--use_parsing", action="store_true")
     parser.add_argument("--config", type=str, default=None, help="Path to jepa.yaml config")
 
-    # Data
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
 
-    # Training
     parser.add_argument("--num_epochs", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--lr", type=float, default=None)
@@ -36,12 +34,10 @@ def get_parser():
     parser.add_argument("--optimizer", type=str, default=None)
     parser.add_argument("--scheduler", type=str, default=None)
 
-    # JEPA-specific
     parser.add_argument("--block_size", type=int, default=None)
     parser.add_argument("--target_ratio", type=float, default=None)
     parser.add_argument("--ema_momentum", type=float, default=None)
 
-    # Phase 1 checkpoint
     parser.add_argument("--vae_checkpoint", type=str, default=None,
                         help="Path to the Phase 1 VQ-VAE checkpoint (.pt)")
 

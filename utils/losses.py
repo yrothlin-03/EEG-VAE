@@ -22,7 +22,6 @@ def kl_loss(posterior):
 
 
 def spectral_loss(pred, target, loss_type="l1", eps=1e-8):
-    # cuFFT in fp16 only supports power-of-2 lengths — cast to fp32 for the FFT
     pred_fft = torch.fft.rfft(pred.float(), dim=-1)
     target_fft = torch.fft.rfft(target.float(), dim=-1)
 
@@ -34,14 +33,6 @@ def spectral_loss(pred, target, loss_type="l1", eps=1e-8):
 
 def multiscale_spectral_loss(pred, target, loss_type="l1", eps=1e-8,
                               fft_sizes=(64, 128, 256, 512)):
-    """
-    Multi-scale STFT loss: computes spectral loss at multiple temporal resolutions.
-
-    Each fft_size n defines overlapping frames of length n (hop = n//2).
-    Small n → broad frequency bands (good for low-frequency EEG rhythms).
-    Large n → narrow frequency bands (good for fine spectral detail).
-    The total loss is the mean across all scales.
-    """
     pred_f, target_f = pred.float(), target.float()
     T = pred_f.shape[-1]
     losses = []
@@ -50,7 +41,6 @@ def multiscale_spectral_loss(pred, target, loss_type="l1", eps=1e-8,
         if T < n:
             continue
         hop = n // 2
-        # unfold last dim into overlapping frames: (..., n_frames, n)
         p_frames = pred_f.unfold(-1, n, hop)
         t_frames = target_f.unfold(-1, n, hop)
         p_mag = torch.fft.rfft(p_frames, dim=-1).abs() + eps
@@ -64,14 +54,10 @@ def multiscale_spectral_loss(pred, target, loss_type="l1", eps=1e-8,
 
 
 def generator_hinge_loss(logits_fake):
-    # Clamp to keep the loss bounded under AMP — extreme logits can
-    # produce inf/NaN in fp16 even before the gradient scaler catches them.
     return -logits_fake.clamp(min=-50.0, max=50.0).mean()
 
 
 def discriminator_hinge_loss(logits_real, logits_fake):
-    # Same clamp on both sides — the hinge loss is unbounded on the wrong side
-    # which is the main source of disc loss NaN under AMP.
     logits_real = logits_real.clamp(min=-50.0, max=50.0)
     logits_fake = logits_fake.clamp(min=-50.0, max=50.0)
     loss_real = F.relu(1.0 - logits_real).mean()
@@ -95,7 +81,6 @@ class PretrainingLoss(nn.Module):
         self.spectral_weight = spectral_weight
         self.rec_loss_type = rec_loss_type
         self.spectral_loss_type = spectral_loss_type
-        # None → single-scale FFT (legacy); list/tuple → multi-scale STFT
         self.spectral_fft_sizes = tuple(spectral_fft_sizes) if spectral_fft_sizes else None
 
     def forward(self, pred, target, posterior):
@@ -185,12 +170,6 @@ class VAEGANLoss(nn.Module):
 
 
 class JEPA_Loss(nn.Module):
-    """
-    JEPA prediction loss: MSE (or smooth_l1) between predicted and target latent
-    representations in the VQ-VAE z_q space.
-
-    Both inputs are (B, D, n_targets) tensors.
-    """
 
     def __init__(self, loss_type: str = "mse"):
         super().__init__()

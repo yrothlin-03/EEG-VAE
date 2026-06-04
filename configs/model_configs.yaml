@@ -1,17 +1,14 @@
 CBRAMOD:
-  # pretrained_checkpoint: /projects/EEG-foundation-model/RECH202/checkpoints/pretrained_tueg_2500CBRAMOD/checkpoint.pt
-  # pretrained_checkpoint: /projects/EEG-foundation-model/RECH202/checkpoints/pretrain/tueg_2500/CBRAMOD/checkpoint.pt
   pretrained_checkpoint: /home/infres/yrothlin-24/RECH202/checkpoints/pretrained_weights.pth
-  params:         
+  params:
     in_dim: 200
     out_dim: 200
     d_model: 200
     dim_feedforward: 800
     n_layer: 12
-    nhead: 8    
+    nhead: 8
 
 EEGMAMBA:
-  # pretrained_checkpoint: /projects/EEG-foundation-model/RECH202/checkpoints/pretrained_tueg_2500EEGMAMBA/checkpoint.pt
   pretrained_checkpoint: /home/infres/yrothlin-24/RECH202/checkpoints/pretrained_EEGMamba.pth
   params:
     in_dim: 200
@@ -19,11 +16,10 @@ EEGMAMBA:
     d_model: 200
     dim_feedforward: 800
     n_layer: 12
-    nhead: 8                 
+    nhead: 8
 
 
 LUNA:
-  # pretrained_checkpoint: /projects/EEG-foundation-model/RECH202/checkpoints/pretrained_LUNA  
   pretrained_checkpoint: /home/infres/yrothlin-24/RECH202/checkpoints/LUNA_base.safetensors
   params:
     patch_size: 40
@@ -42,7 +38,6 @@ REVE:
 
 
 FEMBA:
-  # pretrained_checkpoint: /projects/EEG-foundation-model/RECH202/checkpoints/pretrained_tueg_2500FEMBA/checkpoint.pt
   pretrained_checkpoint: /home/infres/yrothlin-24/RECH202/checkpoints/FEMBA_base.safetensors
   params:
     seq_length: 800

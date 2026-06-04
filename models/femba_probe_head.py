@@ -5,13 +5,6 @@ from .eegpt_probe_head import LazyLinearWithConstraint
 
 
 class FEMBAProbeHead(nn.Module):
-    """Linear-probe head for FEMBA.
-
-    FEMBA exposes patch-token features. We accept 2D/3D/4D inputs and reduce
-    them to a (B, N, D) sequence before applying a constrained linear probe,
-    flattening, and a constrained linear classifier — the same pattern as
-    EEGPTLinearProbeHead.
-    """
 
     def __init__(
         self,

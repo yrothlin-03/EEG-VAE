@@ -24,12 +24,8 @@ cd /home/infres/yrothlin-24/EEG-VAE
 
 mkdir -p logs/jepa
 
-# ── Phase 1 VQ-VAE to JEPA-train ──────────────────────────────────────────────
-# This is the only thing to change to pick the model. ch, vq_n_quantizers and
-# sequence_block (mamba/transformers) are auto-detected from these weights.
 CKPT_ROOT=/projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining
 VAE_CHECKPOINT=$CKPT_ROOT/vq/mamba/q8/pretraining_final.pt
-# VAE_CHECKPOINT=$CKPT_ROOT/vq/transformers/q8/pretraining_final.pt
 
 python main_jepa.py \
     --use_parsing \

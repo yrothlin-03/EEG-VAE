@@ -5,14 +5,6 @@ from .eegpt_probe_head import LazyLinearWithConstraint
 
 
 class REVEProbeHead(nn.Module):
-    """Linear-probe head for REVE.
-
-    REVE returns transformer-style token features. We collapse any extra
-    spatial/temporal dims into a (B, N, D) sequence, then apply a constrained
-    linear probe + flatten + constrained linear classifier — same overall
-    pattern as EEGPTLinearProbeHead but with hyperparameters suited to REVE's
-    smaller token count.
-    """
 
     def __init__(
         self,

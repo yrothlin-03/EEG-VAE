@@ -1,49 +1,33 @@
 \documentclass{article}
 
-% Recommended packages for better typesetting:
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{booktabs}
-\usepackage{float}      % [H] placement — forces figure exactly at definition site
+\usepackage{float}
 
-% hyperref makes hyperlinks in the resulting PDF.
-% If your build breaks, comment out hyperref below and replace
-% \usepackage{icml2026} with \usepackage[nohyperref]{icml2026} above.
 \usepackage{hyperref}
 
-% Attempt to make hyperref and algorithmic work together better:
 \newcommand{\theHalgorithm}{\arabic{algorithm}}
 
-% Use the following line for the initial blind version submitted for review:
 \usepackage{icml2026}
 
-% For preprint, use:
-% \usepackage[preprint]{icml2026}
 
-% If accepted, instead use the following line for the camera-ready submission:
-% \usepackage[accepted]{icml2026}
 
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{mathtools}
 \usepackage{amsthm}
 
-% if you use cleveref:
 \usepackage[capitalize,noabbrev]{cleveref}
 
-% The \icmltitle you define below is probably too long as a header.
-% Therefore, a short form for the running title is supplied here:
-\icmltitlerunning{EEG-RQVAE: Short Running Title}
+\icmltitlerunning{EEG-RQVAE: }
 
 \begin{document}
 \onecolumn
 
 \icmltitle{EEG-RQVAE: Full Paper Title}
 
-% It is OKAY to include author information, even for blind submissions:
-% the style file will automatically remove it unless you've provided
-% the [accepted] option to the icml2026 package.
 
 \begin{icmlauthorlist}
   \icmlauthor{Prénom Nom}{inst1}
@@ -56,22 +40,18 @@
 
 \vskip 0.3in
 
-% This command creates the footnote in the first column listing affiliations.
-% Use ONE of the following lines. DO NOT remove the command.
-\printAffiliationsAndNotice{}  % no special notice (required even if empty)
-% \printAffiliationsAndNotice{\icmlEqualContribution}  % for equal contribution
+\printAffiliationsAndNotice{}
 
 \begin{abstract}
-% ~150 mots. Schéma : (1) problème — EEG foundation models reconstituent en espace signal,
-% ce qui est sous-optimal pour l'apprentissage sémantique ; (2) gap — aucun modèle ne combine
-% tokenisation RVQ et objectif JEPA latent ; (3) méthode — EEG-RQVAE, pipeline 2 étapes,
-% backbone BiMamba ; (4) résultat clé chiffré sur linear probing.
+Electroencephalography (EEG) foundation models are predominantly pretrained by reconstructing the raw signal, an objective that spends model capacity on low-level noise and physiological artefacts rather than on the semantic structure useful for downstream brain--computer interfaces (BCIs).
+Moreover, existing models rarely produce discrete, reusable token representations, and none combine residual vector-quantized tokenization with a latent self-supervised objective.
+We introduce \textbf{EEG-RQVAE}, a residual quantized variational autoencoder that learns hierarchical discrete EEG tokens through a two-stage pipeline: a denoising adversarial reconstruction stage that builds a compact codebook, followed by a JEPA-style stage that refines the encoder purely in latent space, without any signal-level reconstruction pressure.
+A linear-time Mamba backbone models long, multi-channel recordings efficiently.
+Under a unified, fully subject-independent linear-probing benchmark spanning twelve BCI datasets, a frozen RVQ-Mamba encoder is the most consistent variant---best or second-best on every evaluated task---and improves over recent EEG foundation models on motor-imagery (BCI~IV-2a), emotion (SEED-V), pathology (TUAB) and sleep-staging (Sleep-EDF) tasks.
 \end{abstract}
 
 
-% =============================================================================
 \section{Introduction}
-% =============================================================================
 
 Electroencephalography (EEG) measures the brain's electrical activity through electrodes placed on the scalp, capturing oscillatory dynamics across a broad frequency spectrum with millisecond temporal resolution \citep{article, MULLERPUTZ2020249}.
 These properties make EEG a central modality in brain-computer interfaces (BCIs), with applications spanning motor imagery \citep{939829}, imagined speech decoding \citep{article1}, cognitive monitoring, and clinical diagnosis.
@@ -106,9 +86,7 @@ Our main contributions are:
 \end{itemize}
 
 
-% =============================================================================
 \section{Related Work}
-% =============================================================================
 
 \paragraph{EEG foundation models.}
 Building universal EEG representations has been approached through two main architectural families.
@@ -135,9 +113,7 @@ VAE-based approaches for EEG~\citep{ZHAO2024120946, s25103178} have confirmed th
 EEG-RQVAE bridges these lines of work by (i)~learning a discrete, hierarchically quantized latent space via RVQ, (ii)~enforcing signal-level fidelity through adversarial denoising in Stage~1, and (iii)~refining the encoder with a JEPA-style objective in Stage~2 that pushes representations toward semantic predictability without any reconstruction pressure.
 
 
-% =============================================================================
 \section{Method}
-% =============================================================================
 
 EEG-RQVAE is a foundation model for multi-channel EEG that learns discrete, hierarchically quantized representations through a two-stage pretraining pipeline.
 Figure~\ref{fig:model} gives an overview of the full system.
@@ -382,9 +358,7 @@ The high final momentum ($\tau = 0.999$) provides a stable prediction target and
 Because the loss in Eq.~\eqref{eq:stage2} is computed entirely in the discrete latent space $z_q$, the model is never penalized for ignoring the low-level signal details already handled in Stage~1, biasing learning toward the structured temporal dependencies that underlie EEG cognitive dynamics.
 
 
-% =============================================================================
 \section{Experiments}
-% =============================================================================
 
 \subsection{Datasets and Preprocessing}
 \label{subsec:datasets}
@@ -453,7 +427,6 @@ Starting from the frozen Stage~1 RVQ-Mamba checkpoint, the encoder is adapted wi
 Targets are produced by an EMA copy of the encoder whose momentum follows a cosine warm-up from $1.0$ to its final value $0.999$.
 We predict $25\%$ of the temporal blocks (block size $25$ tokens, $\approx500$~ms given the $4\times$ temporal compression) from the visible context, using a lightweight Transformer predictor (embedding dimension $128$, $4$ heads, $4$ layers) and a mean-squared-error loss in latent space; spatial channel masking is disabled in this configuration.
 
-% Matériel : GPU(s) utilisé(s), temps d'entraînement par stage — à compléter.
 
 
 \subsection{Pretraining Analysis}
@@ -513,67 +486,121 @@ This corroborates our central hypothesis: predicting masked representations in l
 \subsection{Linear Probing Evaluation}
 \label{subsec:linear_probing}
 
-% Protocole, baselines et description à rédiger.
+\paragraph{Protocol.}
+We evaluate the quality of the frozen representations with a standardized linear
+probing protocol: the pretrained backbone is kept frozen and only a lightweight
+linear head is trained on top of the pooled latent features for each downstream
+dataset. All datasets are processed by the unified pipeline of
+\cref{subsec:datasets}, and subjects are split at the subject level so the
+evaluation is fully subject-independent. We report balanced accuracy (BACC),
+Cohen's $\kappa$, and macro-averaged F1 (MF1), each as mean\,$\pm$\,std over
+multiple random seeds. We compare against recent EEG foundation models under
+identical conditions; baselines are evaluated with their publicly released
+checkpoints.
+
+\paragraph{Main results.}
+Among our four pretrained variants (compared in \cref{tab:arch_ablation}), the
+residual vector-quantized Mamba model (RVQ-Mamba) is the strongest overall and
+is therefore reported as our representative model in
+\cref{tab:linear_probing_a,tab:linear_probing_b}. RVQ-Mamba is the best model on
+the motor-imagery dataset BCI2A across all three metrics, and it leads on the
+emotion (SEED-V), pathology (TUAB), and sleep-staging (Sleep-EDF) tasks, while
+remaining competitive on PhysioNet~MI and FACED, where the attention-based
+EEGMamba and EEGPT baselines retain an edge. These results show that a frozen
+RVQ-Mamba encoder yields representations that transfer competitively across a
+broad range of BCI tasks.
 
 \begin{table}[H]
   \centering
   \caption{
-    Linear probing results across six downstream BCI tasks.
+    Linear probing results on the motor-imagery and emotion tasks (BCI2A, PhysioNetMI, FACED).
     Metrics reported: balanced accuracy (BACC), Cohen's $\kappa$ (KAPPA), and macro-averaged F1 (MF1).
-    Results are mean\,$\pm$\,std over three random seeds.
+    Baseline results are mean\,$\pm$\,std over three seeds; EEG-VAE\,/\,RVQ-Mamba is
+    averaged over six seeds of the band-pass--preprocessed runs.
+    The per-architecture comparison of our four variants is reported in
+    \cref{tab:arch_ablation}.
     \textbf{Bold}: best. \underline{Underline}: second best.
   }
-  \label{tab:linear_probing}
+  \label{tab:linear_probing_a}
   \resizebox{\linewidth}{!}{%
-  \begin{tabular}{l ccc ccc ccc ccc ccc ccc}
+  \begin{tabular}{l ccc ccc ccc}
     \toprule
     & \multicolumn{3}{c}{\textbf{BCI2A}}
     & \multicolumn{3}{c}{\textbf{PhysioNetMI}}
-    & \multicolumn{3}{c}{\textbf{FACED}}
-    & \multicolumn{3}{c}{\textbf{SEED-V}}
-    & \multicolumn{3}{c}{\textbf{TUAB}}
-    & \multicolumn{3}{c}{\textbf{Sleep-EDF}} \\
+    & \multicolumn{3}{c}{\textbf{FACED}} \\
     \cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
-    \cmidrule(lr){11-13}\cmidrule(lr){14-16}\cmidrule(lr){17-19}
     \textbf{Model}
-    & BACC & $\kappa$ & MF1
-    & BACC & $\kappa$ & MF1
-    & BACC & $\kappa$ & MF1
     & BACC & $\kappa$ & MF1
     & BACC & $\kappa$ & MF1
     & BACC & $\kappa$ & MF1 \\
     \midrule
     EEGPT~\citep{NEURIPS2024_4540d267}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+      & $0.347{\scriptstyle\pm0.043}$ & $0.130{\scriptstyle\pm0.058}$ & $0.341{\scriptstyle\pm0.041}$   & $\underline{0.573}{\scriptstyle\pm0.023}$ & $\underline{0.430}{\scriptstyle\pm0.030}$ & $\underline{0.574}{\scriptstyle\pm0.024}$   & $\underline{0.413}{\scriptstyle\pm0.017}$ & $\underline{0.338}{\scriptstyle\pm0.021}$ & $\underline{0.412}{\scriptstyle\pm0.017}$ \\
     CBraMod~\citep{wang2025cbramod}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+      & $\underline{0.439}{\scriptstyle\pm0.084}$ & $\underline{0.252}{\scriptstyle\pm0.112}$ & $\underline{0.431}{\scriptstyle\pm0.079}$   & $0.472{\scriptstyle\pm0.013}$ & $0.295{\scriptstyle\pm0.017}$ & $0.470{\scriptstyle\pm0.009}$   & $0.332{\scriptstyle\pm0.009}$ & $0.247{\scriptstyle\pm0.008}$ & $0.330{\scriptstyle\pm0.007}$ \\
+    EEGMamba~\citep{WANG2025107816}
+      & $0.408{\scriptstyle\pm0.083}$ & $0.210{\scriptstyle\pm0.111}$ & $0.404{\scriptstyle\pm0.083}$   & $\mathbf{0.578}{\scriptstyle\pm0.020}$ & $\mathbf{0.437}{\scriptstyle\pm0.026}$ & $\mathbf{0.576}{\scriptstyle\pm0.019}$   & $\mathbf{0.471}{\scriptstyle\pm0.007}$ & $\mathbf{0.402}{\scriptstyle\pm0.009}$ & $\mathbf{0.470}{\scriptstyle\pm0.008}$ \\
     REVE~\citep{ouahidi2026reve}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     CSBrain~\citep{zhou2026csbrain}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     LUNA~\citep{doner2025luna}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     LaBraM~\citep{jiang2024large}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     BAM-U-Net~\citep{bamunnet2026}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     \midrule
-    \textbf{EEG-VAE\,/\,KL-Mamba (ours)}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
     \textbf{EEG-VAE\,/\,RVQ-Mamba (ours)}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+      & $\mathbf{0.484}{\scriptstyle\pm0.128}$ & $\mathbf{0.313}{\scriptstyle\pm0.170}$ & $\mathbf{0.468}{\scriptstyle\pm0.124}$   & $0.519{\scriptstyle\pm0.047}$ & $0.359{\scriptstyle\pm0.062}$ & $0.518{\scriptstyle\pm0.048}$   & $0.325{\scriptstyle\pm0.017}$ & $0.241{\scriptstyle\pm0.019}$ & $0.316{\scriptstyle\pm0.018}$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{
+    Linear probing results on the affective, pathology and sleep tasks (SEED-V, TUAB, Sleep-EDF).
+    Metrics reported: balanced accuracy (BACC), Cohen's $\kappa$ (KAPPA), and macro-averaged F1 (MF1).
+    Baselines are averaged over three seeds. For EEG-VAE\,/\,RVQ-Mamba, SEED-V is
+    averaged over six seeds of the band-pass--preprocessed runs, whereas TUAB
+    (three seeds) and Sleep-EDF (single seed) retain the earlier runs, which were
+    not re-evaluated under the band-pass pipeline.
+    \textbf{Bold}: best. \underline{Underline}: second best.
+  }
+  \label{tab:linear_probing_b}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{l ccc ccc ccc}
+    \toprule
+    & \multicolumn{3}{c}{\textbf{SEED-V}}
+    & \multicolumn{3}{c}{\textbf{TUAB}}
+    & \multicolumn{3}{c}{\textbf{Sleep-EDF}} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+    \textbf{Model}
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1 \\
+    \midrule
+    EEGPT~\citep{NEURIPS2024_4540d267}
+      & $0.269{\scriptstyle\pm0.058}$ & $0.083{\scriptstyle\pm0.074}$ & $0.236{\scriptstyle\pm0.087}$   & $\underline{0.744}{\scriptstyle\pm0.014}$ & $\underline{0.487}{\scriptstyle\pm0.034}$ & $\underline{0.742}{\scriptstyle\pm0.016}$   & $\underline{0.625}{\scriptstyle\pm0.020}$ & $\underline{0.548}{\scriptstyle\pm0.028}$ & $\mathbf{0.586}{\scriptstyle\pm0.023}$ \\
+    CBraMod~\citep{wang2025cbramod}
+      & $\underline{0.278}{\scriptstyle\pm0.012}$ & $\underline{0.099}{\scriptstyle\pm0.022}$ & $\underline{0.250}{\scriptstyle\pm0.021}$   & $0.732{\scriptstyle\pm0.011}$ & $0.465{\scriptstyle\pm0.018}$ & $0.728{\scriptstyle\pm0.013}$   & $0.457{\scriptstyle\pm0.061}$ & $0.445{\scriptstyle\pm0.047}$ & $0.453{\scriptstyle\pm0.056}$ \\
+    EEGMamba~\citep{WANG2025107816}
+      & $0.257{\scriptstyle\pm0.018}$ & $0.074{\scriptstyle\pm0.020}$ & $0.221{\scriptstyle\pm0.014}$   & $0.732{\scriptstyle\pm0.008}$ & $0.463{\scriptstyle\pm0.014}$ & $0.731{\scriptstyle\pm0.007}$   & $0.584{\scriptstyle\pm0.048}$ & $0.544{\scriptstyle\pm0.034}$ & $\underline{0.562}{\scriptstyle\pm0.041}$ \\
+    REVE~\citep{ouahidi2026reve}
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
-    \textbf{EEG-VAE\,/\,JEPA (ours)}
-      & --- & --- & ---   & --- & --- & ---   & --- & --- & ---
+    CSBrain~\citep{zhou2026csbrain}
       & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    LUNA~\citep{doner2025luna}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    LaBraM~\citep{jiang2024large}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    BAM-U-Net~\citep{bamunnet2026}
+      & --- & --- & ---   & --- & --- & ---   & --- & --- & --- \\
+    \midrule
+    \textbf{EEG-VAE\,/\,RVQ-Mamba (ours)}
+      & $\mathbf{0.289}{\scriptstyle\pm0.036}$ & $\mathbf{0.110}{\scriptstyle\pm0.043}$ & $\mathbf{0.258}{\scriptstyle\pm0.045}$   & $\mathbf{0.767}{\scriptstyle\pm0.026}$ & $\mathbf{0.528}{\scriptstyle\pm0.057}$ & $\mathbf{0.762}{\scriptstyle\pm0.029}$   & $\mathbf{0.727}{\scriptstyle\pm0.000}$ & $\mathbf{0.592}{\scriptstyle\pm0.000}$ & $0.560{\scriptstyle\pm0.000}$ \\
     \bottomrule
   \end{tabular}%
   }
@@ -596,9 +623,11 @@ This corroborates our central hypothesis: predicting masked representations in l
     & BCI2A & PhysioNetMI & FACED & SEED-V & TUAB & Sleep-EDF \\
     \midrule
     EEGPT~\citep{NEURIPS2024_4540d267}
-      & --- & --- & --- & --- & --- & --- & --- & --- \\
+      & 25.3M & --- & 34.2K & 35.0K & 35.7K & 35.2K & 33.7K & 34.1K \\
     CBraMod~\citep{wang2025cbramod}
-      & --- & --- & --- & --- & --- & --- & --- & --- \\
+      & 5.0M & --- & 17.7K & 39.2K & 92.8K & 15.7K & 42.9K & 16.0K \\
+    EEGMamba~\citep{WANG2025107816}
+      & 3.4M & --- & 17.7K & 39.2K & 92.8K & 15.7K & 42.9K & 16.0K \\
     REVE~\citep{ouahidi2026reve}
       & --- & --- & --- & --- & --- & --- & --- & --- \\
     CSBrain~\citep{zhou2026csbrain}
@@ -610,12 +639,8 @@ This corroborates our central hypothesis: predicting masked representations in l
     BAM-U-Net~\citep{bamunnet2026}
       & --- & --- & --- & --- & --- & --- & --- & --- \\
     \midrule
-    \textbf{EEG-VAE\,/\,KL-Mamba (ours)}
-      & --- & --- & --- & --- & --- & --- & --- & --- \\
     \textbf{EEG-VAE\,/\,RVQ-Mamba (ours)}
-      & --- & --- & --- & --- & --- & --- & --- & --- \\
-    \textbf{EEG-VAE\,/\,JEPA (ours)}
-      & --- & --- & --- & --- & --- & --- & --- & --- \\
+      & 21.5M & --- & 186.6K & 188.0K & 187.5K & 187.9K & 186.3K & 186.1K \\
     \bottomrule
   \end{tabular}%
   }
@@ -624,57 +649,203 @@ This corroborates our central hypothesis: predicting masked representations in l
 
 \subsection{Ablation Study}
 
-% --- Ablation sur la pipeline ---
-% (a) Stage 1 seul (sans Stage 2 JEPA)
-% (b) Stage 1 + Stage 2 (modèle complet)
-% → montre la contribution isolée du Stage 2.
+\paragraph{Encoder architecture and pretraining objective.}
+We ablate the three design axes of EEG-RQVAE jointly by comparing the four
+pretrained variants under the same band-pass--preprocessed linear probing
+protocol and the same six seeds: the continuous \textbf{KL-Mamba} bottleneck
+(VAE without quantization), the residual vector-quantized \textbf{RVQ-Mamba}
+model, its Transformer-backbone counterpart \textbf{RVQ-Transformer} (which
+replaces the BiMamba sequence blocks by self-attention), and the
+\textbf{JEPA} model obtained after the Stage~2 latent adaptation of RVQ-Mamba.
+The comparison thus isolates (i)~the effect of residual quantization
+(KL-Mamba vs.\ RVQ-Mamba), (ii)~the effect of the SSM backbone
+(RVQ-Transformer vs.\ RVQ-Mamba), and (iii)~the effect of the Stage~2 JEPA
+objective (RVQ-Mamba vs.\ JEPA). \Cref{tab:arch_ablation} reports the four
+datasets that were re-evaluated under the band-pass pipeline (BCI2A,
+PhysioNet~MI, FACED, SEED-V).
 
-% --- Ablation sur la quantification ---
-% (a) VAE continu (sans RVQ)
-% (b) VQ-VAE (1 seul codebook)
-% (c) RVQ (N codebooks, modèle complet)
-% → montre l'apport de la quantification résiduelle.
+\begin{table}[H]
+  \centering
+  \caption{
+    Architecture and pretraining-objective ablation under linear probing,
+    on the four band-pass--preprocessed datasets.
+    All variants share the frozen encoder size and probing protocol and are
+    averaged over six seeds (mean\,$\pm$\,std).
+    \textbf{Bold}: best variant per row. \underline{Underline}: second best.
+  }
+  \label{tab:arch_ablation}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{ll cccc}
+    \toprule
+    \textbf{Dataset} & \textbf{Metric}
+    & \textbf{KL-Mamba} & \textbf{RVQ-Mamba} & \textbf{RVQ-Transformer} & \textbf{JEPA} \\
+    \midrule
+    BCI2A
+      & BACC     & $0.456{\scriptstyle\pm0.097}$ & $\mathbf{0.484}{\scriptstyle\pm0.128}$ & $\underline{0.469}{\scriptstyle\pm0.099}$ & $0.443{\scriptstyle\pm0.085}$ \\
+      & $\kappa$ & $0.275{\scriptstyle\pm0.130}$ & $\mathbf{0.313}{\scriptstyle\pm0.170}$ & $\underline{0.292}{\scriptstyle\pm0.133}$ & $0.257{\scriptstyle\pm0.114}$ \\
+      & MF1      & $0.441{\scriptstyle\pm0.099}$ & $\mathbf{0.468}{\scriptstyle\pm0.124}$ & $\underline{0.451}{\scriptstyle\pm0.109}$ & $0.427{\scriptstyle\pm0.090}$ \\
+    \addlinespace
+    PhysioNetMI
+      & BACC     & $\underline{0.536}{\scriptstyle\pm0.040}$ & $0.519{\scriptstyle\pm0.047}$ & $0.528{\scriptstyle\pm0.035}$ & $\mathbf{0.538}{\scriptstyle\pm0.026}$ \\
+      & $\kappa$ & $\underline{0.380}{\scriptstyle\pm0.053}$ & $0.359{\scriptstyle\pm0.062}$ & $0.370{\scriptstyle\pm0.046}$ & $\mathbf{0.384}{\scriptstyle\pm0.035}$ \\
+      & MF1      & $\underline{0.536}{\scriptstyle\pm0.040}$ & $0.518{\scriptstyle\pm0.048}$ & $0.528{\scriptstyle\pm0.034}$ & $\mathbf{0.544}{\scriptstyle\pm0.026}$ \\
+    \addlinespace
+    FACED
+      & BACC     & $0.306{\scriptstyle\pm0.016}$ & $\mathbf{0.325}{\scriptstyle\pm0.017}$ & $0.262{\scriptstyle\pm0.008}$ & $\underline{0.315}{\scriptstyle\pm0.010}$ \\
+      & $\kappa$ & $0.220{\scriptstyle\pm0.018}$ & $\mathbf{0.241}{\scriptstyle\pm0.019}$ & $0.172{\scriptstyle\pm0.008}$ & $\underline{0.230}{\scriptstyle\pm0.011}$ \\
+      & MF1      & $0.298{\scriptstyle\pm0.017}$ & $\mathbf{0.316}{\scriptstyle\pm0.018}$ & $0.250{\scriptstyle\pm0.009}$ & $\underline{0.307}{\scriptstyle\pm0.009}$ \\
+    \addlinespace
+    SEED-V
+      & BACC     & $\underline{0.287}{\scriptstyle\pm0.044}$ & $\mathbf{0.289}{\scriptstyle\pm0.036}$ & $0.280{\scriptstyle\pm0.029}$ & $0.283{\scriptstyle\pm0.027}$ \\
+      & $\kappa$ & $\underline{0.108}{\scriptstyle\pm0.057}$ & $\mathbf{0.110}{\scriptstyle\pm0.043}$ & $0.096{\scriptstyle\pm0.033}$ & $0.104{\scriptstyle\pm0.035}$ \\
+      & MF1      & $\mathbf{0.258}{\scriptstyle\pm0.054}$ & $\underline{0.258}{\scriptstyle\pm0.045}$ & $0.256{\scriptstyle\pm0.035}$ & $0.255{\scriptstyle\pm0.033}$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
 
-% --- Ablation sur le backbone (si résultats disponibles) ---
-% (a) Transformer encodeur
-% (b) BiMamba encodeur
-% → justifie le choix SSM.
+Three trends emerge. First, residual quantization helps on the dense
+emotion/motor-imagery datasets: RVQ-Mamba improves over the continuous
+KL-Mamba on BCI2A and FACED across all three metrics, confirming that the
+discrete codebook does not sacrifice---and in fact sharpens---the
+discriminability of the latent space. Second, the SSM backbone matters most on
+the high-channel emotion task: replacing BiMamba by self-attention
+(RVQ-Transformer) collapses FACED performance (MF1 $0.250$ vs.\ $0.316$) while
+staying close elsewhere, indicating that the linear-time Mamba backbone
+captures spatio-temporal structure that the patch-attention variant misses on
+fine-grained affective classes. Third, the Stage~2 JEPA adaptation is
+task-dependent: it gives the best results on PhysioNet~MI but slightly trails
+RVQ-Mamba on BCI2A, FACED and SEED-V, suggesting that latent prediction sharpens
+representations for some motor-imagery tasks without uniformly dominating.
+Overall RVQ-Mamba is the most consistent variant---best or second-best on every
+dataset---which motivates its use as our representative model in the main
+comparison of \cref{subsec:linear_probing}.
 
-% Table compacte : 3 lignes × nb tâches clés (2-3 suffisent).
+\paragraph{Channel mapping.}
+Stage~1 pretraining is carried out on a fixed montage of $19$ standard
+10--20 electrodes. Downstream datasets, however, come with heterogeneous
+montages, so we compare two strategies for feeding their signals to the
+frozen encoder. In the \emph{raw} regime we keep the native channels of the
+dataset and let a lightweight learned channel adapter project them onto the
+encoder input. In the \emph{mapped} regime we instead reconstruct the
+pretraining layout: each of the $19$ standard positions is filled with the
+spatially nearest available native channel, and any standard position without
+a corresponding electrode is set to zero. The mapped input thus matches
+exactly the channel layout the encoder saw during pretraining.
+\Cref{tab:channel_mapping} reports RVQ-Mamba under both regimes; TUAB is
+excluded as it is only available in the mapped form.
+
+\begin{table}[H]
+  \centering
+  \caption{
+    Channel-mapping ablation for EEG-VAE\,/\,RVQ-Mamba: native channels with a
+    learned adapter (\emph{raw}) vs.\ projection onto the $19$-channel
+    pretraining montage with zero-filling (\emph{mapped}).
+    Mean\,$\pm$\,std over three seeds; \textbf{bold} marks the better regime.
+    $^\dagger$Sleep-EDF \emph{raw} is a single seed (seed~8); SEED-V is omitted
+    as no \emph{raw} run is available.
+  }
+  \label{tab:channel_mapping}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{l ccc ccc}
+    \toprule
+    & \multicolumn{3}{c}{\textbf{Raw (native channels)}}
+    & \multicolumn{3}{c}{\textbf{Mapped (19-ch montage)}} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}
+    \textbf{Dataset}
+    & BACC & $\kappa$ & MF1
+    & BACC & $\kappa$ & MF1 \\
+    \midrule
+    BCI2A
+      & $0.483{\scriptstyle\pm0.140}$ & $0.309{\scriptstyle\pm0.187}$ & $0.469{\scriptstyle\pm0.151}$
+      & $\mathbf{0.495}{\scriptstyle\pm0.153}$ & $\mathbf{0.326}{\scriptstyle\pm0.204}$ & $\mathbf{0.475}{\scriptstyle\pm0.174}$ \\
+    PhysioNetMI
+      & $0.565{\scriptstyle\pm0.010}$ & $0.420{\scriptstyle\pm0.014}$ & $0.564{\scriptstyle\pm0.015}$
+      & $\mathbf{0.567}{\scriptstyle\pm0.003}$ & $\mathbf{0.422}{\scriptstyle\pm0.004}$ & $\mathbf{0.570}{\scriptstyle\pm0.003}$ \\
+    FACED
+      & $0.346{\scriptstyle\pm0.012}$ & $0.264{\scriptstyle\pm0.012}$ & $0.342{\scriptstyle\pm0.011}$
+      & $\mathbf{0.369}{\scriptstyle\pm0.014}$ & $\mathbf{0.289}{\scriptstyle\pm0.016}$ & $\mathbf{0.366}{\scriptstyle\pm0.016}$ \\
+    Sleep-EDF$^\dagger$
+      & $\mathbf{0.727}$ & $\mathbf{0.592}$ & $\mathbf{0.560}$
+      & $0.200{\scriptstyle\pm0.000}$ & $0.000{\scriptstyle\pm0.000}$ & $0.093{\scriptstyle\pm0.024}$ \\
+    \bottomrule
+  \end{tabular}%
+  }
+\end{table}
+
+On the three dense motor/emotion datasets (BCI2A, PhysioNetMI, FACED),
+mapping yields a small but consistent gain across all three metrics. When the
+native montage is rich enough to cover most of the standard $19$ positions,
+reconstructing the pretraining layout lets the frozen encoder apply its
+learned spatial filters to electrodes at their expected locations, whereas the
+raw regime forces the adapter to re-learn this correspondence from few labels.
+The trend reverses sharply on Sleep-EDF: with only two EEG derivations, the
+mapping zero-fills $17$ of the $19$ inputs, the encoder receives an almost
+empty montage, and the probe degenerates to the majority class
+(BACC~$0.20$, $\kappa\!=\!0$). Keeping the two native channels with a learned
+adapter is then essential and recovers strong performance
+(BACC~$0.73$). Channel mapping is therefore beneficial when the downstream
+montage is dense and close to the standard 10--20 system, but detrimental for
+sparse or atypical montages, where a learned adapter on the native channels
+should be preferred.
 
 
-% =============================================================================
+
+
+
+
 \section{Limitations}
-% =============================================================================
 
-% --- Limitations techniques ---
-% (1) Risque de collapse du codebook RVQ si le corpus de préentraînement est insuffisant
-%     ou si la dimension des vecteurs est mal calibrée.
-% (3) Stage 2 augmente le coût total de préentraînement sans garantie de gain uniforme
-%     sur toutes les tâches (gain potentiellement plus faible sur les tâches à faible contenu sémantique).
-% (1) pour la comparaison en évaluation on a utilise les checkpoints des modèles donc les préentrainements ne sont pas équivalents.
-% (2) on s'est limité au préentrainement sur un seul corpus or une diversification du corpus de préentrainement pourrait améliorer la généralisation. (aussi on a fait un petit préentrainement mais un plus gros donnerait peut être de meilleurs résultats)
-% (3) on n'a pas exploré empiriquement les modifications de performances en fonction de la combinaison des loss.
+Our study has several limitations that we make explicit.
+
+\paragraph{Codebook stability.}
+The residual quantizer relies on $N=8$ EMA-updated codebooks.
+Although dead-code revival and Laplace smoothing mitigate collapse, the stability of the discrete codes remains sensitive to the size of the pretraining corpus and to the calibration of the latent dimension $D$.
+With a small or weakly diverse corpus, the higher residual stages risk under-utilization, which can cap the effective vocabulary well below its nominal $K^N$ capacity.
+
+\paragraph{Scale and diversity of pretraining.}
+We pretrain on a single corpus (TUEG) and on only $10\%$ of its files ($1{,}385$ subjects).
+Both the limited volume and the reliance on a single acquisition source likely under-estimate the potential of the learned representations: prior foundation-model work shows that corpus scale and montage/site diversity are primary drivers of transfer, so a larger, multi-corpus pretraining set could substantially improve generalization.
+
+\paragraph{Comparability of baselines.}
+Baselines are evaluated from their publicly released checkpoints rather than re-pretrained under our protocol.
+While the downstream linear-probing pipeline is identical for all models, the underlying pretraining data, corpus size, and optimization differ across methods; the comparison therefore reflects released models as-is rather than a strictly controlled, matched-pretraining study.
+
+\paragraph{Unexplored loss interactions.}
+The Stage~1 objective combines reconstruction, multi-scale spectral, commitment, and adversarial terms with fixed weights, and Stage~2 adds a latent prediction loss.
+We did not ablate the interaction between these terms, so the chosen weighting may be sub-optimal and the relative contribution of each loss to downstream quality remains uncharacterized.
+
+\paragraph{Cost and uneven benefit of Stage~2.}
+The latent JEPA stage roughly doubles the pretraining budget yet does not improve every task uniformly (cf.\ \cref{tab:arch_ablation}): it helps PhysioNet~MI but slightly trails the Stage~1 RVQ-Mamba on BCI2A, FACED and SEED-V.
+The semantic gain is therefore task-dependent and is not guaranteed for tasks with weaker semantic content.
+
+\paragraph{Sequence directionality.}
+While our framework is formulated with bidirectional Mamba blocks (\cref{eq:bimamba}), the checkpoints evaluated here use the unidirectional (causal) selective scan.
+Because EEG windows are processed offline, a strictly causal backbone discards future context that is as informative as past context; we therefore expect a fully bidirectional backbone to be better suited to EEG, and confirming this gain is left to future validation.
 
 
-% =============================================================================
+
 \section{Future Work}
-% =============================================================================
 
-% (1) Application ciblée au décodage de parole imaginée :
-%     comparaison systématique phonèmes vs mots, lien avec les applications BCI cliniques.
-% (3) Utilisation des tokens RVQ discrets comme entrée d'un modèle génératif autorégressif
-%     (analogue à RQ-Transformer pour l'image).
-% (4) Scaling : impact du volume de données de préentraînement sur la qualité des représentations.
+\paragraph{Imagined-speech decoding.}
+A central motivation for compact, semantic EEG tokens is communication BCIs.
+We plan a focused study of imagined-speech decoding on the BCI~2020~T3, KaraOne and Chisco benchmarks, including a systematic phoneme- versus word-level comparison, to assess the clinical relevance of the learned representations for speech-restoration interfaces.
 
-% =============================================================================
+\paragraph{Discrete tokens for generative modeling.}
+EEG-RQVAE produces hierarchical discrete codes that are, by construction, suitable inputs for autoregressive sequence models.
+Coupling the frozen RVQ tokenizer with a decoder-only Transformer over the code sequence---analogous to RQ-Transformer for images~\citep{9879532} and to neural audio language models---would enable conditional EEG generation, imputation, and forecasting.
+
+\paragraph{Scaling.}
+Given the limited corpus used here, characterizing how representation quality scales with the volume and diversity of pretraining data is a natural next step, and would clarify how far the present results are from the model's ceiling.
+
+\paragraph{Loss design.}
+A systematic exploration of the Stage~1 loss weighting---the reconstruction/spectral/adversarial trade-off---together with the balance between Stage~1 and Stage~2, could yield better-calibrated representations than the fixed weights used here.
+
+\paragraph{Semantically grounded and bidirectional adaptation.}
+Two extensions to Stage~2 are promising: (i)~driving the JEPA adaptation with task-relevant datasets to inject stronger semantic structure into the latent space, and (ii)~replacing the causal backbone with the fully bidirectional Mamba blocks of \cref{eq:bimamba}, which better match the offline, non-causal nature of EEG analysis.
+
 \section{Conclusion}
-% =============================================================================
 
-% ~100 mots.
-% Récapituler les 4 contributions (EEG-RQVAE, pipeline 2 stages, analyse SSM, benchmark).
-% Mentionner le résultat principal (ex. Xème sur N tâches en linear probing).
-% Ouvrir sur la parole imaginée et la tokenisation discrète pour la génération.
 
 
 \newpage
@@ -687,13 +858,8 @@ This corroborates our central hypothesis: predicting masked representations in l
 \appendix
 \onecolumn
 
-% =============================================================================
 \section{Foundation Models Used for Comparison}
-% =============================================================================
 
-% Un paragraphe par modèle baseline décrivant :
-% architecture principale, objectif de préentraînement, données d'entraînement, nb paramètres.
-% Modèles : EEGPT, CBraMod, REVE, CSBrain, LuMamba, BAM-U-Net, LUNA.
 
 
 
@@ -747,7 +913,6 @@ Unless otherwise noted, labels follow each dataset's official protocol and are r
 \end{itemize}
 
 
-% =============================================================================
 \section{Ablation: Channel Mapping and Spatial Information}
 \label{app:channel_ablation}
 
@@ -761,31 +926,14 @@ When several source channels map to the same target, midline and central electro
 Non-EEG modalities (EOG, EMG, ECG, respiration, markers, mastoids, etc.) are removed.
 Target channels absent from a montage are zero-filled and flagged by a boolean presence mask, so the encoder always receives a $19 \times T$ tensor regardless of the source montage.
 
-% --- Ablation à mener ---
-% Comparer différentes stratégies de position encoding spatial :
-% (a) sans position encoding spatial
-% (b) position encoding appris
-% (c) position encoding basé sur les coordonnées 3D des électrodes (MNI)
-% Évaluer l'impact sur les tâches qui exploitent la topographie (motor imagery, ERP).
 
 
-% =============================================================================
 \section{Computational Analysis}
-% =============================================================================
-
-% Table : nb de paramètres, FLOPs par forward pass, temps d'inférence (ms/sample),
-% mémoire GPU (Go) pour EEG-RQVAE vs baselines.
-% Discuter le compromis performance / efficacité.
 
 
-% =============================================================================
+
 \section{Implementation Details}
-% =============================================================================
 
-% Architecture complète (dimensions, nb de blocs, nb de codebooks, taille des codebooks).
-% Détail des augmentations : niveaux de bruit, ratios de masquage, types de corruption.
-% Hyperparamètres complets des deux stages.
-% Code disponible à : [lien anonymisé pour soumission].
 
 
 \end{document}

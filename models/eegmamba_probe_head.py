@@ -5,13 +5,6 @@ from .eegpt_probe_head import LazyLinearWithConstraint
 
 
 class EEGMambaProbeHead(nn.Module):
-    """Linear-probe head for EEGMAMBA.
-
-    EEGMAMBA returns patch-token features with shape similar to CBRAMOD:
-    [B, C, L, D] for channel × temporal patch tokens. The probe flattens
-    channels and time, projects each token to a small hidden width, then
-    flattens all tokens before the final classifier.
-    """
 
     def __init__(
         self,

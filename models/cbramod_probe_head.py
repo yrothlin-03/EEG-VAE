@@ -5,16 +5,6 @@ from .eegpt_probe_head import LazyLinearWithConstraint
 
 
 class CBRAMODProbeHead(nn.Module):
-    """Linear-probe head for CBRAMOD.
-
-    CBRAMOD outputs token features shaped [B, C, L, D] where C is the number
-    of EEG channels, L the number of temporal patches, and D the embedding
-    dimension. We flatten the channel/temporal dims, project each token to a
-    small hidden width, then flatten all tokens before the final classifier.
-
-    Inspired by EEGPTLinearProbeHead with hyperparameters tuned for CBRAMOD's
-    larger embedding (200) and typical token count.
-    """
 
     def __init__(
         self,
@@ -38,19 +28,19 @@ class CBRAMODProbeHead(nn.Module):
         self.classifier = LazyLinearWithConstraint(out_dim, max_norm=classifier_max_norm)
 
     def _to_tokens(self, x: torch.Tensor) -> torch.Tensor:
-        if x.ndim == 4:                       # (B, C, L, D)
+        if x.ndim == 4:
             b, c, l, d = x.shape
             return x.reshape(b, c * l, d)
-        if x.ndim == 3:                       # (B, N, D)
+        if x.ndim == 3:
             return x
-        if x.ndim == 2:                       # (B, D)
+        if x.ndim == 2:
             return x.unsqueeze(1)
         raise ValueError(f"Unsupported CBRAMOD feature shape: {tuple(x.shape)}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self._to_tokens(x)
-        x = self.probe(self.dropout(x))       # (B, N, hidden_dim)
-        x = x.flatten(1)                      # (B, N * hidden_dim)
+        x = self.probe(self.dropout(x))
+        x = x.flatten(1)
         x = self.classifier(x)
         if self.task == "regression" and x.shape[-1] == 1:
             return x.squeeze(-1)

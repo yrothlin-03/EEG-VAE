@@ -115,8 +115,6 @@ class Decoder(nn.Module):
         )
 
     def _run(self, module, *args):
-        # MambaEEGBlock uses custom CUDA kernels with a nested autocast(enabled=False)
-        # that is not correctly restored during checkpoint recomputation — run it normally.
         if self.use_checkpoint and self.training and not isinstance(module, MambaEEGBlock):
             return checkpoint(module, *args, use_reentrant=False)
         return module(*args)

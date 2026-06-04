@@ -70,15 +70,6 @@ class Conv1dWithConstraint(nn.Conv1d):
 
 
 class EEGPTLinearProbeHead(nn.Module):
-    """Linear-probe head mirroring the BCIC2A EEGPT script.
-
-    Expected EEGPT features are [B, N, E, D]. The reference script flattens
-    the last two dimensions, projects each token to 16 dims, then flattens
-    all tokens before the final classifier. This implementation keeps that
-    structure but uses lazy constrained linears so it can attach to the
-    existing downstream interface and to feature tensors with nearby shapes
-    from other backbones.
-    """
 
     def __init__(
         self,

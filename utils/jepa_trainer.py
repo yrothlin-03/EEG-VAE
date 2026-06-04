@@ -14,16 +14,6 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 class JEPATrainer:
-    """
-    Phase 2 training loop for EEG-JEPA.
-
-    Differences from pretraining_trainer.Trainer:
-    - No discriminator / no adversarial objective.
-    - EMA update of the target encoder after every gradient step.
-    - Target encoder always kept in eval mode (no BatchNorm stat drift).
-    - Masking created fresh each step (same positions for all batch items).
-    - NaN-safe loss accumulation (same pattern as pretraining_trainer).
-    """
 
     def __init__(self, model, loaders, training_config):
         self.model = model
@@ -51,10 +41,6 @@ class JEPATrainer:
         self.target_ratio = self.jepa_config.get("target_ratio", 0.25)
         self.channel_mask_ratio = self.jepa_config.get("channel_mask_ratio", 0.0)
 
-        # EMA momentum schedule — cosine warmup from 1.0 → ema_momentum_base
-        # over the full training. Starting at 1.0 freezes the target encoder
-        # at initialisation, which prevents the "moving target" instability
-        # where train and val loss both grow over epochs.
         self.ema_momentum_base = self.jepa_config.get("ema_momentum", 0.996)
         self.ema_momentum_warmup = bool(self.jepa_config.get("ema_momentum_warmup", True))
         self.model.ema_momentum = 1.0 if self.ema_momentum_warmup else self.ema_momentum_base
@@ -63,7 +49,7 @@ class JEPATrainer:
         self.global_step = 0
         self.loss_history = []
         self.best_val_loss = float("inf")
-        self._T_tokens = None   # inferred lazily from the first batch
+        self._T_tokens = None
 
         self.model.to(self.device)
 
@@ -72,9 +58,6 @@ class JEPATrainer:
         self.scheduler = self._build_scheduler()
         self.scaler = GradScaler(enabled=self.use_amp)
 
-    # ------------------------------------------------------------------
-    # Setup helpers
-    # ------------------------------------------------------------------
 
     def _build_optimizer(self):
         name = self.training_config.get("optimizer", "adamw").lower()
@@ -104,9 +87,6 @@ class JEPATrainer:
             )
         raise ValueError(f"Unknown scheduler: {name!r}")
 
-    # ------------------------------------------------------------------
-    # Batch extraction (mirrors pretraining_trainer)
-    # ------------------------------------------------------------------
 
     def _get_batch(self, batch):
         if isinstance(batch, torch.Tensor):
@@ -120,18 +100,8 @@ class JEPATrainer:
             return batch[0]
         raise TypeError(f"Unsupported batch type: {type(batch)}")
 
-    # ------------------------------------------------------------------
-    # T_tokens inference (lazy, cached for the run)
-    # ------------------------------------------------------------------
 
     def _current_ema_momentum(self) -> float:
-        """Cosine schedule: m(t) = 1 - (1 - m_base) * (1 - cos(π·progress)) / 2.
-
-        At progress=0   → m = 1.0 (target frozen at init)
-        At progress=1   → m = m_base
-        Smoothly interpolates between, giving the encoder time to find a
-        stable representation before the target starts following it.
-        """
         if not self.ema_momentum_warmup:
             return self.ema_momentum_base
         progress = self.current_epoch / max(1, self.num_epochs - 1)
@@ -145,14 +115,9 @@ class JEPATrainer:
                 self._T_tokens = z.shape[-1]
         return self._T_tokens
 
-    # ------------------------------------------------------------------
-    # Training / validation
-    # ------------------------------------------------------------------
 
     def train_one_epoch(self):
         self.model.train()
-        # Target encoder always stays in eval: no BatchNorm stat updates,
-        # no dropout — it is a momentum copy, not a trained module.
         self.model.target_encoder.eval()
 
         train_loader = self.loaders["train"]
@@ -196,7 +161,6 @@ class JEPATrainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
 
-                # EMA update with the warmup-scheduled momentum
                 self.model.update_target_encoder(momentum=self._current_ema_momentum())
 
             for key, value in logs.items():
@@ -255,9 +219,6 @@ class JEPATrainer:
             return {}
         return {f"val_{k}": total_logs[k] / count_logs[k] for k in count_logs}
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
 
     def _save_loss_history(self):
         if not self.loss_history:
@@ -293,7 +254,6 @@ class JEPATrainer:
         print(f"Saved JEPA checkpoint to {save_path}")
 
     def _maybe_save_best(self, val_logs: dict):
-        """Save jepa_best.pt whenever val_loss improves."""
         val_loss = val_logs.get("val_loss")
         if val_loss is None or val_loss != val_loss or val_loss in (float("inf"), float("-inf")):
             return
@@ -309,9 +269,6 @@ class JEPATrainer:
                 f"— saved best to {save_path}"
             )
 
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
 
     def train(self):
         for epoch in range(self.num_epochs):

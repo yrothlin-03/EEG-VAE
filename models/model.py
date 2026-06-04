@@ -43,11 +43,6 @@ class Model(torch.nn.Module):
         self.input_target_length = None
 
         if self.model_name == "EEGPT":
-            # Learnable 1x1 channel adapter (≡ the original repo's `chan_conv`):
-            # maps the dataset's channels onto EEGPT's fixed 19-channel montage,
-            # so the pretrained encoder always sees the channels it knows.
-            # input_adapter_in_channels is set from the data in main_downstream;
-            # it stays trainable under linear_probing (only the backbone freezes).
             self.input_adapter = Conv1dWithConstraint(
                 int(model_config.get("input_adapter_in_channels", 19)),
                 int(model_config.get("input_adapter_out_channels", 19)),
@@ -78,29 +73,15 @@ class Model(torch.nn.Module):
                 if self.logger is not None:
                     self.logger.info("Backbone frozen for linear probing.")
 
-        # Auto-select probe head from model_name so the downstream config does
-        # not need to carry a `head:` section. Each backbone has a dedicated
-        # head file tuned for its output feature shape.
         hc = dict(head_config) if head_config else {}
         self.head = self._build_head(task, n_classes, model_config, hc)
 
-    #     self.head = HeadV3(
-    #     task=task,
-    #     n_classes=n_classes,
-    #     pooling=hc.get("pooling", "attn"),
-    #     hidden_dim=hc.get("hidden_dim", 256),
-    #     dropout=hc.get("dropout", 0.5),
-    #     n_layer=hc.get("n_layer", 2),
-    #     output_dim=hc.get("output_dim", 1),
-    #     norm=hc.get("norm", "layernorm"),
-    # )
 
         self._log_every = 1000
         self._cpt = 0
 
 
     def _build_head(self, task: str, n_classes: int, model_config: dict, hc: dict):
-        """Pick the right probe head for the backbone."""
         name = self.model_name.upper()
 
         if name == "LUNA":
@@ -141,7 +122,6 @@ class Model(torch.nn.Module):
             return REVEProbeHead(task=task, n_classes=n_classes,
                                   output_dim=hc.get("output_dim", 1))
 
-        # Fallback for any other backbone
         return HeadWrapper(
             task=task,
             n_classes=n_classes,

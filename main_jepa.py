@@ -16,7 +16,6 @@ def get_config(config_path):
 
 
 def update_config(base_config, parsed_args):
-    """Override config values from CLI args (mirrors main_pretraining.py)."""
     parsed_dict = vars(parsed_args)
     jepa_keys = {"block_size", "target_ratio", "ema_momentum"}
 
@@ -44,16 +43,6 @@ def update_config(base_config, parsed_args):
 
 
 def jepa_subdir(sequence_block: str, n_quantizers: int) -> str:
-    """Relative checkpoint sub-directory for a JEPA run.
-
-    JEPA always runs on a VQ-VAE encoder, so the ``vq/`` prefix is redundant:
-
-    attention → "transformers/q{n}"
-    mamba     → "mamba/q{n}"
-
-    The trailing ``q{n}`` segment keeps JEPA runs built on differently-sized
-    VQ-VAEs from overwriting each other's checkpoints.
-    """
     block = str(sequence_block).lower()
     if block == "attention":
         block_dir = "transformers"
@@ -67,7 +56,6 @@ def jepa_subdir(sequence_block: str, n_quantizers: int) -> str:
 
 
 def _append_subdir(path: str, subdir: str) -> str:
-    """Append ``subdir`` to ``path`` unless ``path`` already ends with it."""
     p = Path(path)
     subdir_parts = Path(subdir).parts
     if p.parts[-len(subdir_parts):] == subdir_parts:
@@ -138,10 +126,6 @@ def main(config):
 
     print_model_size(model)
 
-    # Route checkpoints/logs into a variant-specific sub-directory so JEPA runs
-    # built on different VQ-VAEs (sequence block, RVQ stage count) don't collide.
-    # Use the sequence_block auto-detected from the checkpoint, not the yaml,
-    # so switching phase1.checkpoint alone routes to the right directory.
     n_quantizers = getattr(model.context_encoder.quantize, "n_quantizers", 1)
     detected_block = getattr(model, "sequence_block", model_config.get("sequence_block", "attention"))
     training_config = add_type_dirs(training_config, {"sequence_block": detected_block}, n_quantizers)

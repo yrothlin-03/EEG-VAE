@@ -3,12 +3,6 @@ import torch.nn as nn
 
 
 class LunaProbeHead(nn.Module):
-    """LUNA downstream head inspired by BioFoundation's classifier.
-
-    LUNA returns token features shaped [B, num_patches, num_queries * embed_dim].
-    BioFoundation classifies those features with a learned aggregate query that
-    attends over patch tokens, followed by an MLP classifier.
-    """
 
     def __init__(
         self,

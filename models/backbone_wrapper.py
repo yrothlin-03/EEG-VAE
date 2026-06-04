@@ -156,12 +156,6 @@ class BackboneWrapper(torch.nn.Module):
 
         if self.model_name == "EEGPT":
             eegpt_config = dict(self.model_config)
-            # EEGPT is keyed by channel name and was pretrained on a fixed
-            # montage, so it must always run on a set of channels it knows.
-            # Mirror the original EEGPT downstream scripts: build the encoder on
-            # the fixed 19-channel montage and let a learnable Conv1d input
-            # adapter (models/model.py, like the repo's `chan_conv`) map the
-            # dataset's channels onto these — works for any dataset, raw or mapped.
             for key in (
                 "use_eegpt_bcic2a_probe_adapter",
                 "input_adapter_in_channels",

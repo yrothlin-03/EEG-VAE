@@ -52,16 +52,6 @@ def update_config(base_config, parsed_args):
 
 
 def model_subdir(model_config: dict) -> str:
-    """Relative checkpoint sub-directory encoding the model variant.
-
-    kl + attention → "kl/transformers"
-    kl + mamba     → "kl/mamba"
-    vq + attention → "vq/transformers/q{n}"
-    vq + mamba     → "vq/mamba/q{n}"
-
-    The trailing ``q{n}`` segment (RVQ stage count) keeps differently-sized VQ
-    models from overwriting each other's checkpoints.
-    """
     sequence_block = str(model_config.get("sequence_block", "attention")).lower()
     if sequence_block == "attention":
         block_dir = "transformers"
@@ -85,7 +75,6 @@ def model_subdir(model_config: dict) -> str:
 
 
 def _append_subdir(path: str, subdir: str) -> str:
-    """Append ``subdir`` to ``path`` unless ``path`` already ends with it."""
     p = Path(path)
     subdir_parts = Path(subdir).parts
     if p.parts[-len(subdir_parts):] == subdir_parts:
@@ -102,26 +91,17 @@ def add_type_dirs(training_config: dict, model_config: dict) -> dict:
     training_config["checkpoint_type"] = subdir
     return training_config
 
-# Default regularisation weight per latent type, used when loss.kl_weight is
-# left to "auto". KL needs a tiny weight so the divergence toward N(0, I) does
-# not crush reconstruction; VQ uses it as a unit scale on the commitment loss
-# (already scaled by model.vq_commitment_cost inside the quantizer).
 KL_WEIGHT_DEFAULTS = {"kl": 1e-5, "vq": 1.0}
 
 
 def resolve_kl_weight(training_config: dict, model_config: dict) -> dict:
-    """Auto-select loss.kl_weight from model_type when it is 'auto'/null/missing.
-
-    An explicit numeric kl_weight (from the yaml or --kl_weight) is always
-    respected and never overridden.
-    """
     loss_config = training_config.get("loss")
     if loss_config is None:
         return training_config
 
     weight = loss_config.get("kl_weight", "auto")
     if isinstance(weight, (int, float)) and not isinstance(weight, bool):
-        return training_config  # explicit numeric value → respect it
+        return training_config
 
     model_type = str(model_config.get("model_type", "kl")).lower()
     if model_type not in KL_WEIGHT_DEFAULTS:
@@ -172,11 +152,6 @@ def print_model_size(model, discriminator):
 
 
 def build_augmenter(augment_config: dict | None) -> EEGAugment | None:
-    """Build an :class:`EEGAugment` from the ``data.augment`` config block.
-
-    Returns ``None`` when augmentation is disabled, in which case the train
-    loader is built without any stochastic transform.
-    """
     if not augment_config or not augment_config.get("enabled", True):
         return None
 

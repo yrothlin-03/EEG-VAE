@@ -10,8 +10,6 @@ data:
 
 
 phase1:
-  # New checkpoint layout (Phase 1): vq/<block>/q<n>/pretraining_final.pt
-  # Override per-run with --vae_checkpoint to JEPA-train a different VQ-VAE.
   checkpoint: /projects/EEG-foundation-model/RECH202/EEG-VAE/checkpoints/pretraining/vq/mamba/q8/pretraining_final.pt
 
 
@@ -23,7 +21,7 @@ training:
   device: "cuda"
   optimizer: "adamw"
   scheduler: "cosine"
-  lr: 0.00002          # was 0.0001 — encoder must change slowly enough for EMA target to track it
+  lr: 0.00002
   weight_decay: 0.05
   betas: [0.9, 0.95]
   grad_clip: 1.0
@@ -32,17 +30,16 @@ training:
   max_step_val: 50
 
   jepa:
-    block_size: 25          # tokens per temporal block (~500 ms at 200 Hz with 4× compression)
-    target_ratio: 0.25      # fraction of temporal blocks to predict (≈25% of the sequence)
-    ema_momentum: 0.999     # final EMA momentum (was 0.996 — higher for more target stability)
-    ema_momentum_warmup: true   # cosine schedule 1.0 → ema_momentum (fixes loss-growing-up issue)
-    channel_mask_ratio: 0.0     # disabled — re-enable to 0.1-0.25 once base JEPA loss decreases
+    block_size: 25
+    target_ratio: 0.25
+    ema_momentum: 0.999
+    ema_momentum_warmup: true
+    channel_mask_ratio: 0.0
 
   loss:
     loss_type: "mse"      # "mse" or "smooth_l1"
 
 
-# Phase 1 model config — must match exactly what was used to train the VQ-VAE
 model:
   model_type: "vq"
 
@@ -55,8 +52,6 @@ model:
   z_channels: 16
   embed_dim: 16
 
-  # Note: ch and vq_n_quantizers are auto-detected from the Phase 1 checkpoint
-  # by build_jepa_model() — values here serve as fallback only.
   ch: 128
   ch_mult: [1, 2, 4]
 
@@ -78,11 +73,10 @@ model:
   vq_n_quantizers: 8
 
 
-# Predictor hyperparameters
 predictor:
-  embed_dim: 16           # must match model.embed_dim
+  embed_dim: 16
   predictor_embed_dim: 128
   num_heads: 4
   num_layers: 4
-  max_seq_len: 2048       # ≥ T // compression_factor (e.g. 6000 // 4 = 1500)
+  max_seq_len: 2048
   dropout: 0.0

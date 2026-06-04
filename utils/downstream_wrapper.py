@@ -8,43 +8,26 @@ from eeg_vae import EEGVAE
 from models.eegvae_probe_head import EEGVAEProbeHead
 
 
-# ── Checkpoint introspection helpers ─────────────────────────────────────────
 
 def _detect_eegvae_config(state_dict: dict) -> dict:
-    """
-    Inspect a checkpoint state_dict and return model_config overrides inferred
-    from the weight shapes.  Works for Phase 1 (KL / VQ) and Phase 2 (JEPA).
-
-    Returns a dict with keys:
-        is_jepa         (bool)
-        model_type      ('kl' | 'vq')
-        ch              (int | None)
-        vq_n_quantizers (int)   — 0 = single-VQ, >0 = RVQ
-        sequence_block  ('mamba' | 'attention')
-    """
     is_jepa = 'mask_token' in state_dict or any(
         k.startswith('predictor.') for k in state_dict
     )
 
-    # Key prefixes differ between Phase 1 (autoencoder.*) and Phase 2 (context_encoder.*)
     ae = 'context_encoder.' if is_jepa else 'autoencoder.'
 
-    # ch: inferred from encoder conv_in shape [ch, adapted_channels, 3]
     w = state_dict.get(f'{ae}encoder.conv_in.weight')
     ch = int(w.shape[0]) if w is not None else None
 
-    # sequence_block: mamba if Mamba-specific keys are present
     has_mamba = any(f'{ae}encoder.mid.attn_1.mamba.' in k for k in state_dict)
     sequence_block = 'mamba' if has_mamba else 'attention'
 
-    # model_type: vq if quantize buffers are present
     has_vq = (
         f'{ae}quantize.embedding' in state_dict
         or f'{ae}quantize.quantizers.0.embedding' in state_dict
     )
     model_type = 'vq' if has_vq else 'kl'
 
-    # n_quantizers: count RVQ stages (0 = standard single-VQ)
     n_q = 0
     if has_vq:
         while f'{ae}quantize.quantizers.{n_q}.embedding' in state_dict:
@@ -60,18 +43,6 @@ def _detect_eegvae_config(state_dict: dict) -> dict:
 
 
 def _remap_jepa_to_eegvae(state_dict: dict) -> dict:
-    """
-    Remap JEPA context_encoder keys to EEGVAE keys so the backbone can be
-    loaded directly.
-
-        context_encoder.channel_adaptor.* → channel_adaptor.*
-        context_encoder.encoder.*         → autoencoder.encoder.*
-        context_encoder.quant_conv.*      → autoencoder.quant_conv.*
-        context_encoder.quantize.*        → autoencoder.quantize.*
-
-    target_encoder.*, predictor.*, mask_token are discarded (not needed for
-    downstream inference).
-    """
     remapped = {}
     for k, v in state_dict.items():
         if k.startswith('context_encoder.channel_adaptor.'):
@@ -218,8 +189,6 @@ class DownstreamEEGVAE(nn.Module):
         head_config = {} if head_config is None else dict(head_config)
         self.mode = self._normalize_mode(mode)
 
-        # Auto-detect architecture from checkpoint so the yaml model section
-        # never needs to be manually kept in sync with the checkpoint.
         self._is_jepa = False
         if checkpoint_path is not None and self.mode != "full_training":
             ckpt = torch.load(checkpoint_path, map_location="cpu")
@@ -244,9 +213,6 @@ class DownstreamEEGVAE(nn.Module):
 
         self.backbone = EEGVAE(**model_config)
 
-        # The head is always EEGVAEProbeHead — it is the only one tuned for
-        # EEGVAE's (B, embed_dim, T_tokens) latent. The yaml head section is
-        # ignored except for optional probe hyperparameters.
         head_config.pop("type", None)
         head_config.pop("probe_max_norm", None)
         head_config.pop("classifier_max_norm", None)
@@ -356,23 +322,15 @@ class DownstreamEEGVAE(nn.Module):
         return self.backbone.load_state_dict(compatible_state, strict=False)
 
     def train(self, mode: bool = True):
-        """Keep frozen sub-modules in eval mode.
-
-        The channel adaptor uses BatchNorm1d; if a frozen backbone is left in
-        train mode its running stats keep drifting during downstream training,
-        so the "frozen" encoder no longer reproduces the pretrained features.
-        Force the frozen parts to eval while the trainable parts follow ``mode``.
-        """
         super().train(mode)
         if not mode:
-            return self  # full eval — nothing to override
+            return self
 
         if self.mode == "linear_probing":
             self.backbone.eval()
         elif self.mode == "channel_training":
             self.backbone.eval()
             self.backbone.channel_adaptor.train()
-        # finetuning / full_training: whole backbone trains, leave as-is
         return self
 
     def forward(self, x):

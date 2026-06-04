@@ -9,27 +9,15 @@ __all__ = ["AutoencoderVQ"]
 
 
 class VQPosterior:
-    """
-    Duck-typed to match DiagonalGaussianDistribution so the training pipeline
-    (PretrainingLoss, VAEGANLoss, Trainer) works without any modification.
-
-    .kl()      → returns the commitment loss (scalar tensor).
-                 In PretrainingLoss: kl_weight * mean(posterior.kl()) acts as the
-                 commitment loss scale. Set kl_weight: 1.0 in the config for VQ
-                 (commitment_cost inside the VQ layer already scales the raw MSE).
-    .sample() / .mode() → both return the quantized latent z_q.
-    .loss_name → used by PretrainingLoss to name the log key ("commitment_loss").
-    """
 
     loss_name = "commitment_loss"
 
     def __init__(self, z_quantized, commitment_loss, indices, perplexity):
         self.z_quantized = z_quantized
-        self.commitment_loss = commitment_loss   # scalar tensor, gradient-connected
-        self.indices = indices                   # (B, T) int64 — discrete codes
-        self.perplexity = perplexity             # scalar — effective codebook usage
+        self.commitment_loss = commitment_loss
+        self.indices = indices
+        self.perplexity = perplexity
 
-    # ---- latent access -------------------------------------------------------
 
     def sample(self):
         return self.z_quantized
@@ -37,23 +25,12 @@ class VQPosterior:
     def mode(self):
         return self.z_quantized
 
-    # ---- KL-compatible interface ---------------------------------------------
 
     def kl(self, _other=None, _dims=None):
-        # torch.mean(scalar) = scalar, so kl_loss(posterior) works as-is.
         return self.commitment_loss
 
 
 class AutoencoderVQ(nn.Module):
-    """
-    Autoencoder with a vector-quantized bottleneck.
-    Drop-in replacement for AutoencoderKL — same forward / encode / decode /
-    reconstruct / get_last_layer interface.
-
-    The only behavioural difference visible to the trainer is that encode()
-    returns a VQPosterior instead of a DiagonalGaussianDistribution; both
-    expose .sample(), .mode(), and .kl().
-    """
 
     def __init__(
         self,
@@ -72,7 +49,6 @@ class AutoencoderVQ(nn.Module):
         use_checkpoint=False,
         sequence_block="attention",
         criss_cross_patch_size=200,
-        # VQ-specific
         num_embeddings=512,
         commitment_cost=0.25,
         decay=0.99,
@@ -98,7 +74,7 @@ class AutoencoderVQ(nn.Module):
             resolution=resolution,
             dropout=dropout,
             resamp_with_conv=resamp_with_conv,
-            double_z=False,   # VQ does not split into mean/logvar
+            double_z=False,
             use_checkpoint=use_checkpoint,
             sequence_block=sequence_block,
             criss_cross_patch_size=criss_cross_patch_size,
@@ -119,7 +95,6 @@ class AutoencoderVQ(nn.Module):
             sequence_block=sequence_block,
         )
 
-        # z_channels → embed_dim  (no factor-2 doubling needed for VQ)
         self.quant_conv = nn.Conv1d(z_channels, embed_dim, kernel_size=1)
         self.post_quant_conv = nn.Conv1d(embed_dim, embed_dim, kernel_size=1)
 
@@ -151,7 +126,7 @@ class AutoencoderVQ(nn.Module):
 
     def forward(self, x, sample_posterior=True, return_posterior=False):
         posterior = self.encode(x)
-        z = posterior.sample()   # always z_q — no stochasticity in VQ
+        z = posterior.sample()
         dec = self.decode(z)
 
         if return_posterior:

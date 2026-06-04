@@ -28,25 +28,6 @@ class _TransformerBlock(nn.Module):
 
 
 class EEGPredictor(nn.Module):
-    """
-    Narrow transformer predictor for EEG-JEPA (Phase 2).
-
-    Receives the full latent sequence (B, D, T_tokens) where target positions have
-    been replaced by a learnable mask token, then predicts the representations at
-    those positions.
-
-    The "narrow predictor" pattern (I-JEPA): D is projected up to predictor_embed_dim
-    internally, keeping the predictor smaller than the main encoder while still
-    having capacity for temporal reasoning.
-
-    Args:
-        embed_dim:            Dimension of z_q tokens (must match VQ embed_dim).
-        predictor_embed_dim:  Internal width of the predictor transformer.
-        num_heads:            Attention heads (must divide predictor_embed_dim).
-        num_layers:           Number of transformer blocks.
-        max_seq_len:          Maximum T_tokens supported by the positional embedding.
-        dropout:              Dropout in attention and MLP.
-    """
 
     def __init__(
         self,
@@ -83,25 +64,17 @@ class EEGPredictor(nn.Module):
         nn.init.zeros_(self.output_proj.bias)
 
     def forward(self, z, target_pos):
-        """
-        Args:
-            z:          (B, D, T_tokens) — full sequence with mask tokens at target positions.
-            target_pos: (n_targets,)     — LongTensor of token indices to predict.
-
-        Returns:
-            (B, D, n_targets) — predicted representations at target positions.
-        """
         B, D, T = z.shape
 
-        h = z.permute(0, 2, 1)                              # (B, T, D)
-        h = self.input_proj(h)                              # (B, T, predictor_dim)
+        h = z.permute(0, 2, 1)
+        h = self.input_proj(h)
         h = h + self.pos_embed(torch.arange(T, device=z.device)).unsqueeze(0)
 
         for block in self.blocks:
             h = block(h)
 
         h = self.norm(h)
-        h = h[:, target_pos, :]                             # (B, n_targets, predictor_dim)
-        pred = self.output_proj(h)                          # (B, n_targets, D)
+        h = h[:, target_pos, :]
+        pred = self.output_proj(h)
 
-        return pred.permute(0, 2, 1)                        # (B, D, n_targets)
+        return pred.permute(0, 2, 1)

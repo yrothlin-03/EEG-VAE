@@ -3,11 +3,6 @@ import torch.nn as nn
 
 
 class ChannelAdaptor(nn.Module):
-    """
-    Args:
-        input: eeg signal with shape (B, C, T)
-        output: eeg signal with shape (B, C', T)
-    """
 
     def __init__(self, in_channels, out_channels, n_layers):
         super().__init__()

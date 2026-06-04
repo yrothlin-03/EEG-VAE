@@ -45,7 +45,7 @@ class Trainer:
         self.ae_optimizer_steps_this_epoch = 0
         self.disc_optimizer_steps_this_epoch = 0
         self.loss_history = []
-        self.best_val_loss = float("inf")   # tracked across epochs for best checkpoint
+        self.best_val_loss = float("inf")
 
         self.model.to(self.device)
         self.discriminator.to(self.device)
@@ -121,12 +121,6 @@ class Trainer:
         raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
     def _split_batch(self, batch):
-        """Return the ``(input, target)`` pair from a pretraining batch.
-
-        The pretraining loader yields ``(x_in, x_tgt)`` — a corrupted input and
-        an uncorrupted (view) target — or ``(x_in, x_tgt, ch_names)``. A bare
-        tensor falls back to ``input == target`` (plain reconstruction).
-        """
         if isinstance(batch, torch.Tensor):
             return batch, batch
 
@@ -183,7 +177,6 @@ class Trainer:
         target = target.detach().float().cpu()
         pred = pred.detach().float().cpu()
 
-        # self._check_reconstruction_shapes(pred, target)
 
         target = target[0]
         pred = pred[0]
@@ -270,7 +263,6 @@ class Trainer:
         print(f"Saved final pretraining checkpoint to {save_path}")
 
     def _maybe_save_best(self, val_logs: dict):
-        """Save pretraining_best.pt whenever val_loss improves."""
         val_loss = val_logs.get("val_loss")
         if val_loss is None or not self._is_finite_number(val_loss):
             return
@@ -417,7 +409,7 @@ class Trainer:
         train_loader = self.loaders["train"]
 
         total_logs = {}
-        count_logs = {}   # per-key finite-step counter for NaN-safe averaging
+        count_logs = {}
         n_steps = 0
         self.ae_optimizer_steps_this_epoch = 0
         self.disc_optimizer_steps_this_epoch = 0
@@ -488,8 +480,6 @@ class Trainer:
                         logits_fake=logits_fake,
                     )
 
-                # Skip the optimizer step entirely if the disc loss blew up —
-                # applying it would corrupt the discriminator weights.
                 if torch.isfinite(loss_disc):
                     self.scaler.scale(loss_disc).backward()
 
@@ -511,7 +501,7 @@ class Trainer:
 
             for key, value in logs.items():
                 v = float(value)
-                if v == v and v not in (float("inf"), float("-inf")):  # isfinite
+                if v == v and v not in (float("inf"), float("-inf")):
                     total_logs[key] = total_logs.get(key, 0.0) + v
                     count_logs[key] = count_logs.get(key, 0) + 1
 
@@ -548,10 +538,6 @@ class Trainer:
             torch.randperm(max_val_steps)[:num_to_plot].tolist()
         )
 
-        # print(
-        #     f"Epoch {self.current_epoch + 1}: plotting validation batches "
-        #     f"{sorted(random_plot_steps)}"
-        # )
 
         for step, batch in enumerate(val_loader):
             if self.max_step_val is not None and step >= self.max_step_val:

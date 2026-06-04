@@ -94,7 +94,6 @@ class MambaEEGBlock(nn.Module):
                 "or use sequence_block='attention'."
             )
         h = self.norm(x).transpose(1, 2)
-        # Mamba's selective scan uses exponentials that overflow in fp16 — force fp32
         with torch.amp.autocast("cuda", enabled=False):
             h = self.mamba(h.float()).to(x.dtype)
         h = h.transpose(1, 2)
@@ -119,14 +118,6 @@ def make_sequence_block(sequence_block, in_channels, dropout=0.0):
 
 
 class CrissCrossEEGAttention(nn.Module):
-    """CBraMod-style factorized attention over EEG channel/time patches.
-
-    The old implementation attended over raw time steps and built attention
-    tensors proportional to B*C*T. This version first patches the temporal
-    axis, applies spatial attention over channels and temporal attention over
-    patches, then projects the patch tokens back to a residual signal with the
-    original (B, C, T) shape.
-    """
 
     def __init__(
         self,
@@ -208,7 +199,6 @@ class CrissCrossEEGAttention(nn.Module):
 
         tokens = self.patch_proj(patches)
 
-        # rfft in fp16 requires power-of-2 lengths (patch_size=200 is not) — force fp32
         spectra = torch.fft.rfft(patches.float(), dim=-1, norm="forward").abs().to(patches.dtype)
         tokens = tokens + self.spectral_proj(spectra)
 
@@ -410,8 +400,6 @@ class Encoder(nn.Module):
         )
 
     def _run(self, module, *args):
-        # MambaEEGBlock uses custom CUDA kernels with a nested autocast(enabled=False)
-        # that is not correctly restored during checkpoint recomputation — run it normally.
         if self.use_checkpoint and self.training and not isinstance(module, MambaEEGBlock):
             return checkpoint(module, *args, use_reentrant=False)
         return module(*args)

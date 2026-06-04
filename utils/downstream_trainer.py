@@ -519,11 +519,6 @@ class Trainer:
             n_steps += 1
             metrics.update(outputs.detach(), targets.detach())
 
-            # if train and self.log_step and step % self.log_step == 0:
-            #     print(
-            #         f"epoch={self.current_epoch + 1}/{self.num_epochs} "
-            #         f"step={step} loss={float(loss.detach()):.6f}"
-            #     )
 
         if n_steps == 0 or n_samples == 0:
             return {}

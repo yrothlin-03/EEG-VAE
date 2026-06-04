@@ -158,10 +158,6 @@ _KNOWN_SUBDIRS = {"transformers", "mamba", "vq", "jepa"}
 
 
 def checkpoint_subdir_for_eegvae(model_config: dict, training_config: dict) -> str:
-    """
-    Infer the downstream checkpoint sub-directory from the upstream checkpoint.
-    Priority: detect from checkpoint weights > fall back to sequence_block in config.
-    """
     from utils.downstream_wrapper import _detect_eegvae_config
 
     weights_path = training_config.get("model_weights")
@@ -174,7 +170,6 @@ def checkpoint_subdir_for_eegvae(model_config: dict, training_config: dict) -> s
                 return "jepa"
             if info["model_type"] == "vq":
                 return "vq"
-            # KL — fall through to sequence_block
         except Exception:
             pass
 
@@ -385,8 +380,6 @@ def _infer_loader_channels(loaders: dict) -> int:
         try:
             sample = dataset[0]
         finally:
-            # Reading one sample opens the LMDB env in the main process. Close it
-            # before DataLoader workers fork, otherwise LMDB can segfault in workers.
             _close_dataset_env(dataset)
 
         x = sample[0] if isinstance(sample, (tuple, list)) else sample
@@ -435,13 +428,6 @@ def _adapt_model_channels_for_raw(
 
 
 def _adapt_eegpt_input_channels(model_config: dict, loaders: dict) -> dict:
-    """Size EEGPT's learnable channel adapter to the dataset's channel count.
-
-    EEGPT runs on a fixed 19-channel montage (see backbone_wrapper); a Conv1d
-    input adapter maps the dataset's `n_in` channels onto it. `n_in` depends on
-    channel_mode (19 in 'mapped', raw count otherwise), so infer it from the
-    data rather than hard-coding it. Mirrors the original repo's `chan_conv`.
-    """
     model_config = dict(model_config)
     n_in = _infer_loader_channels(loaders)
     model_config["input_adapter_in_channels"] = n_in

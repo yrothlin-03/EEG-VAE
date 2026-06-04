@@ -3,17 +3,6 @@ import torch.nn.functional as F
 
 
 class ArbitraryChannelAdaptor(nn.Module):
-    """Adapt EEG tensors from any input channel count to a fixed channel count.
-
-    Args:
-        input: eeg signal with shape (B, C, T), where C can vary at runtime
-        output: eeg signal with shape (B, C', T)
-
-    The public interface mirrors ``ChannelAdaptor`` so it can be swapped into
-    ``EEGVAE``. ``in_channels`` is accepted for compatibility, but the forward
-    pass does not require the runtime input to have that exact number of
-    channels.
-    """
 
     def __init__(self, in_channels, out_channels, n_layers):
         super().__init__()

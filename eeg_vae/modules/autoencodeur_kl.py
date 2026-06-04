@@ -9,10 +9,6 @@ __all__ = ["AutoencoderKL"]
 
 
 class AutoencoderKL(nn.Module):
-    """
-    Variational autoencoder with a diagonal Gaussian latent distribution.
-    Inputs and outputs are 1D signals with shape (B, C, T).
-    """
 
     def __init__(
         self,

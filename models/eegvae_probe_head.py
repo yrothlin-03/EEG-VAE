@@ -6,13 +6,6 @@ from torch.nn.parameter import UninitializedParameter
 
 
 class EEGVAEProbeHead(nn.Module):
-    """Classification/regression probe for EEGVAE latent tensors.
-
-    EEGVAE.encode(...).mode() returns a temporal latent map shaped like
-    [B, C_latent, T_latent]. This head keeps that temporal structure: it first
-    projects the latent channels with Conv1d, applies a small temporal probe,
-    then pools with compact statistics and coarse temporal bins.
-    """
 
     def __init__(
         self,

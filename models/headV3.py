@@ -9,7 +9,7 @@ class HeadV3(nn.Module):
         task: str = "classification",
         n_classes: int = 2,
         output_dim: int = 1,
-        pooling: str = "attn",   # kept for compatibility, but unused in flatten mode
+        pooling: str = "attn",
         n_layer: int = 2,
         hidden_dim: int = 256,
         dropout: float = 0.5,
@@ -29,19 +29,17 @@ class HeadV3(nn.Module):
         self._built_for_flat_dim: Optional[int] = None
 
     def _as_tokens(self, x: torch.Tensor) -> Tuple[torch.Tensor, int]:
-        # Returns tokens as [B, N, D] and D
         if x.dim() == 2:
-            return x.unsqueeze(1), x.shape[-1]  # [B, 1, D]
+            return x.unsqueeze(1), x.shape[-1]
 
         if x.dim() == 3:
-            # Heuristic: if shape looks like [B, D, N], transpose to [B, N, D]
             if x.shape[1] <= 512 and x.shape[2] > 512:
                 return x.transpose(1, 2).contiguous(), x.shape[1]
-            return x.contiguous(), x.shape[2]  # assume [B, N, D]
+            return x.contiguous(), x.shape[2]
 
         if x.dim() == 4:
             b, c, l, d = x.shape
-            return x.reshape(b, c * l, d).contiguous(), d  # [B, N=C*L, D]
+            return x.reshape(b, c * l, d).contiguous(), d
 
         raise ValueError(f"Unsupported feature shape: {tuple(x.shape)}")
 
@@ -88,14 +86,14 @@ class HeadV3(nn.Module):
         self._built_for_flat_dim = int(flat_dim)
 
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        tokens, d = self._as_tokens(feats)          # [B, N, D]
+        tokens, d = self._as_tokens(feats)
         b, n, _ = tokens.shape
         flat_dim = n * d
 
         if self._built_for_flat_dim is None or self._built_for_flat_dim != flat_dim:
             self._build(flat_dim, feats.device)
 
-        x = tokens.reshape(b, flat_dim)             # [B, N*D]  (FLATTEN instead of pooling)
+        x = tokens.reshape(b, flat_dim)
         x = self.mlp(x)
 
         if self.task == "regression" and x.shape[-1] == 1:
