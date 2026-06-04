@@ -36,8 +36,8 @@
 
 \node[block, fill=cPurple, minimum width=2.3cm, minimum height=1.4cm,
       right=0.8cm of adapt] (criss) {
-  \textbf{CrissCross}\\[-1pt]\textbf{EEG Attn}\\[3pt]
-  \tiny Spatial + Temporal\\[-2pt]+ FFT spectral
+  \textbf{Mamba EEG}\\[-1pt]\textbf{Block}\\[3pt]
+  \tiny LN $\to$ Mamba $\to$ residual
 };
 
 \node[block, fill=cBlue, minimum width=2.1cm, minimum height=3.0cm,
@@ -47,7 +47,7 @@
   ResBlock$^{\times 2}$\\[-2pt]
   ${\times}\,3$ levels\\[-2pt]
   Downsample$^{\times 2}$\\[-2pt]
-  Mid.\ Attn
+  Mid.\ Mamba
 };
 
 \node[block, fill=cRed!50!white, minimum width=2.7cm, minimum height=3.4cm,
@@ -62,7 +62,7 @@
 \node[block, fill=cBlue, minimum width=2.1cm, minimum height=3.0cm,
       right=0.8cm of vq] (dec) {
   \textbf{Decoder}\\[7pt]
-  \scriptsize Mid.\ Attn\\[-2pt]
+  \scriptsize Mid.\ Mamba\\[-2pt]
   Upsample$^{\times 2}$\\[-2pt]
   ResBlock$^{\times 3}$\\[-2pt]
   ${\times}\,3$ levels\\[-2pt]
